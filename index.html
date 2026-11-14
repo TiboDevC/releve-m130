@@ -31,7 +31,13 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 .iconbtn { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--sheet); display: flex; align-items: center; justify-content: center; padding: 0; flex: none; }
 .iconbtn[aria-pressed="true"] { border-color: var(--ink); }
 .ttl { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; background: none; border: 0; padding: 0; text-align: left; }
-.eyebrow { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.eyebrow { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 480px) {
+  header { gap: 6px !important; }
+  header .iconbtn { width: 40px; }
+  header .conn { padding: 0 10px; font-size: 13px; }
+  .ttl b { font-size: 17px; }
+}
 .ttl b { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conn { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--soft); border: 1px solid var(--line); border-radius: 999px; padding: 0 12px; min-height: 44px; background: transparent; flex: none; white-space: nowrap; }
 .conn .d { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-sizing: border-box; }
@@ -282,7 +288,7 @@ let D = blank(), SOL = null, CHK = null;
 const ui = { view: "releve" };
 function resetUi() {
   Object.assign(ui, { sel: null, wall: null, control: null, height: null, draft: null, pending: null, cote: null, manual: false, toWall: false,
-    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false });
+    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false });
 }
 resetUi();
 let view = { cx: 1.5, cy: 1, s: 60 }, undoStack = [], lastBip = null, conn = navigator.bluetooth ? "off" : "na", lastToast = "";
@@ -742,6 +748,7 @@ function drawHouse(g, P, o) {
         txt(g, mx, my, str, { size: o.fs, fill: flag ? c.warn : m.kind === "cote" || sk ? c.muted : c.label, font: o.num, rot: ang, pe: false });
     }
   }
+  if (o.screen) drawConstraints(g, P);
   if (o.screen) for (const cn of D.cons.filter(x => x.kind === "door")) {
     const A = Pof(cn.a), B = Pof(cn.b); if (!A || !B) continue;
     const a = P(...A), b = P(...B); el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: c.door, "stroke-width": 1, "stroke-dasharray": "2 4" }, g);
@@ -763,6 +770,44 @@ function drawHouse(g, P, o) {
     if (showName) txt(g, nx, ny, r.name, { size: fsN, fill: c.label, font: o.ui, weight: 700, rot, pe: false });
     if (showArea) txt(g, ax, ay, area, { size: o.fs, fill: c.soft, font: o.num, rot, pe: false });
   }
+}
+function drawConstraints(g, P) {
+  // contraintes posées à la main (violet). Au repos : un petit point discret sur chaque mur contraint.
+  // Quand un mur (ou une pièce) est sélectionné : ses relations en clair, murs liés surlignés et lien explicite.
+  const col = "#b69cff", cs = D.cons.filter(c => c.walls && (c.kind === "equal" || c.kind === "align"));
+  if (!cs.length) return;
+  const selWall = ui.sel && ui.sel.type === "meas" ? ui.sel.id : null, selRoom = ui.sel && ui.sel.type === "room" ? room(ui.sel.id) : null;
+  const roomW = selRoom ? new Set(roomWalls(selRoom).map(m => m.id)) : null;
+  const focus = c => (selWall && c.walls.includes(selWall)) || (roomW && c.walls.some(id => roomW.has(id)));
+  const geo = id => { const m = meas(id); return m && wallGeom(m); };
+  const mid = wg => { const A = P(...wg.A), B = P(...wg.B); return [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2]; };
+  const marked = new Set();
+  for (const c of cs) {
+    const gs = c.walls.map(geo); if (gs.some(x => !x)) continue;
+    if (!focus(c)) { for (const id of c.walls) marked.add(id); continue; }
+    for (const wg of gs) {                                                  // murs liés : halo violet
+      const A = P(...wg.A), B = P(...wg.B);
+      el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: col, "stroke-opacity": .35, "stroke-width": 10, "stroke-linecap": "round", "pointer-events": "none" }, g);
+    }
+    if (c.kind === "equal") {
+      // un « = » au milieu de chacun des deux murs, et un fin trait qui les relie
+      const [a, b] = gs.map(mid);
+      el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: col, "stroke-width": 1, "stroke-dasharray": "1 5", "pointer-events": "none" }, g);
+      for (const q of [a, b]) {
+        el("circle", { cx: q[0], cy: q[1], r: 9, fill: "#0f1315", stroke: col, "stroke-width": 1.5, "pointer-events": "none" }, g);
+        txt(g, q[0], q[1] + .5, "=", { size: 12, fill: col, font: "JetBrains Mono, monospace", weight: 700, pe: false });
+      }
+    } else {
+      // alignement : la ligne commune prolongée d'un mur à l'autre
+      let best = null;
+      for (const p of [gs[0].A, gs[0].B]) for (const q of [gs[1].A, gs[1].B]) { const d = Math.hypot(p[0] - q[0], p[1] - q[1]); if (!best || d < best.d) best = { p, q, d }; }
+      const a = P(...best.p), b = P(...best.q);
+      el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: col, "stroke-width": 2, "stroke-dasharray": "4 4", "pointer-events": "none" }, g);
+      const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      txt(g, m[0], m[1] - 10, "aligné", { size: 10, fill: col, font: "Archivo, sans-serif", weight: 600, pe: false });
+    }
+  }
+  for (const id of marked) { const wg = geo(id); if (!wg) continue; const q = mid(wg); el("circle", { cx: q[0], cy: q[1], r: 2.6, fill: col, "pointer-events": "none" }, g); }
 }
 function drawOpening(g, op, wg, P, o) {
   const c = o.c, og = openingGeom(op, wg), tick = 7;
@@ -1412,7 +1457,14 @@ function deleteMeas(id) {
     if (r.loop) { const k = (es[i].i + 1) % c.length; r.contour = c.slice(k).concat(c.slice(0, k)); r.loop = false; }
     else if (i === es.length - 1) c.pop();
     else if (i === 0) c.shift();
-    else { undoStack.pop(); return toast("Au milieu du croquis : supprime plutôt depuis le dernier mur, ou « Annuler »"); }
+    else {
+      // croquis ouvert : on coupe ici, ce mur et tous ceux qui le suivent partent ; on reprend le tracé depuis son départ
+      const tail = es.slice(i).map(e => e.m).filter(Boolean);
+      r.contour = c.slice(0, es[i].i + 1); r.status = "sketch";
+      for (const w of tail) { if (w === m) continue; D.meas = D.meas.filter(x => x !== w); for (const o of D.openings.filter(o => o.meas === w.id)) removeOpening(o);
+        D.cons = D.cons.filter(cn => cn.w !== w.id && !(cn.walls && cn.walls.includes(w.id))); }
+      D.cur = r.id;
+    }
     r.status = "sketch";
   }
   D.meas = D.meas.filter(x => x !== m);
@@ -1752,6 +1804,13 @@ function explainFlag(m) {
   const lst = par.map(w => `${mName(w)} ${fmt(w.obs[w.obs.length - 1])}`).join(", ");
   return `Avec les autres murs ${ax ? "verticaux" : "horizontaux"} de la pièce${lst ? ` (${lst})` : ""}, la pièce ne se referme pas : il manque ou il y a ${cm(Math.abs(rs.resid[rs.resid.length - 1]))} de trop. L'un de ces murs est sans doute mal mesuré.`;
 }
+function delLabel(m) {
+  const r = m.kind === "wall" ? roomOfWall(m) : null; if (!r) return "Confirmer la suppression";
+  const es = roomEdges(r), i = es.findIndex(e => e.m === m);
+  if (r.loop) return "Confirmer : la pièce se rouvre";
+  if (i > 0 && i < es.length - 1) { const n = es.slice(i + 1).filter(e => e.m).length; return `Confirmer : ce mur et les ${n} suivant${n > 1 ? "s" : ""}`; }
+  return "Confirmer la suppression";
+}
 function wallFiche(m) {
   const sol = solve(), rs = sol.res.get(m.id), r = roomOfWall(m), flag = rs && rs.flag;
   const eqm = !m.obs.length && sameAs(m);
@@ -1795,9 +1854,9 @@ function wallFiche(m) {
       <p class="small">Une mesure fausse ? Touche-la pour la retirer${m.obs.length > 1 ? " : l'app ne gardera que les autres" : ""}.</p></div>`;
     if (flag) h += `<p class="small" style="color:var(--warn-t,#ffb27a)">${explainFlag(m)}</p>`;
   }
-  h += `<div class="row nowrap">${m.obs.length ? `<button class="btn grow" data-act="replace:${m.id}">Remplacer la mesure</button>` : ""}
-    <button class="btn danger grow" data-act="delmeas">${ui.armDel === m.id ? "Confirmer la suppression" : "Supprimer"}</button></div>
-    <div class="bar"><button class="btn primary" data-act="control:${m.id}">${m.obs.length ? "Mesure de contrôle" : "Mesurer"} ${mName(m)}</button></div>`;
+  h += `${m.obs.length ? `<button class="btn" data-act="replace:${m.id}">Remplacer la mesure</button>` : ""}
+    <div class="bar">${ui.armDel === m.id ? `<button class="btn danger grow" data-act="delmeas">${delLabel(m)}</button>`
+      : `<button class="btn danger" data-act="delmeas" aria-label="Supprimer ce mur" style="flex:0 0 auto">Supprimer</button><button class="btn primary grow" data-act="control:${m.id}">${m.obs.length ? "Mesure de contrôle" : "Mesurer"} ${mName(m)}</button>`}</div>`;
   return h;
 }
 function opFiche(o) {
@@ -1891,10 +1950,14 @@ function openingHTML() {
   return h;
 }
 function checksHTML() {
-  const cks = shownChecks();
-  return `<div class="sec"><span class="label">Vérifications</span>${cks.length ? cks.map(c => `<div class="chk ${c.type === "control" ? "warn" : ""}"><span class="hint">${c.text}</span>
-    <div class="row">${c.acts.map(([l, a], i) => `<button class="btn ${i === 0 && c.type !== "align" ? "primary" : ""} ${c.type === "align" ? "grow" : ""}" data-act="${a}">${l}</button>`).join("")}</div></div>`).join("")
-    : `<p class="small">Rien à vérifier pour l'instant.</p>`}</div>`;
+  // problèmes (mesures qui s'écartent) : tous listés, c'est ce que compte la pastille ⚠ ; suggestions à part
+  const all = checkList(), probs = all.filter(c => c.type === "control"), sugg = all.filter(c => c.type !== "control");
+  const card = c => `<div class="chk ${c.type === "control" ? "warn" : ""}"><span class="hint">${c.text}</span>
+    <div class="row">${c.acts.map(([l, a], i) => `<button class="btn ${i === 0 && c.type !== "align" ? "primary" : ""} ${c.type === "align" ? "grow" : ""}" data-act="${a}">${l}</button>`).join("")}</div></div>`;
+  const sShown = ui.allSugg ? sugg : sugg.slice(0, 2);
+  return `<div class="sec"><span class="label">Vérifications${probs.length ? ` · ${probs.length} à vérifier` : ""}</span>${probs.length ? probs.map(card).join("") : `<p class="small">Aucune mesure en désaccord.</p>`}</div>
+    ${sugg.length ? `<div class="sec"><span class="label">Suggestions · ${sugg.length}</span>${sShown.map(card).join("")}
+      ${sugg.length > sShown.length ? `<button class="linkbtn" data-act="all-sugg">Voir les ${sugg.length - sShown.length} autres suggestions</button>` : ""}</div>` : ""}`;
 }
 function maisonHTML() {
   const area = D.rooms.reduce((t, r) => t + roomArea(r), 0);
@@ -1942,15 +2005,19 @@ function sheetKey() {
 }
 function renderHeader() {
   const at = ui.view === "maison", r = curRoom();
-  $("#eyebrow").textContent = at ? "Toute la maison" : r ? { sketch: "1 · Structure", measure: "2 · Mesures", closed: "Pièce fermée" }[r.status] : "Relevé";
+  $("#eyebrow").textContent = at ? "Vue maison" : r ? { sketch: "1 · Structure", measure: "2 · Mesures", closed: "Pièce fermée" }[r.status] : "Relevé";
   $("#rname").textContent = at || !r ? "Ma maison" : r.name;
   $("#houseBtn").setAttribute("aria-pressed", at);
   $("#tabR").setAttribute("aria-pressed", !at); $("#tabA").setAttribute("aria-pressed", at);
   // pastille des vérifications : elle mène à la vue Maison, sans jamais remplacer le panneau en cours
-  const n = checkList().length, b = $("#chk"); b.hidden = !n; $("#chkN").textContent = n;
+  const n = checkList().filter(c => c.type === "control").length, b = $("#chk"); b.hidden = !n; $("#chkN").textContent = n;
+  b.setAttribute("aria-label", `${n} mesure${n > 1 ? "s" : ""} à vérifier`);
   $("#undoBtn").disabled = !undoStack.length;
   $("#conn").dataset.s = conn;
-  $("#connTxt").textContent = { on: "M130", wait: "Connexion…", sleep: "Reconnecter", off: "Connecter", na: "Bluetooth indisponible" }[conn];
+  // libellés courts sur téléphone : l'en-tête doit laisser la place au nom de la pièce
+  const narrow = (typeof innerWidth === "number" ? innerWidth : 1000) < 480;
+  $("#connTxt").textContent = (narrow ? { on: "M130", wait: "…", sleep: "M130", off: "Connecter", na: "BT ✕" } : { on: "M130", wait: "Connexion…", sleep: "Reconnecter", off: "Connecter", na: "Bluetooth indisponible" })[conn];
+  $("#conn").setAttribute("aria-label", { on: "M130 connecté", wait: "Connexion en cours", sleep: "M130 en veille : toucher pour reconnecter", off: "Connecter le M130", na: "Bluetooth indisponible" }[conn]);
 }
 
 /* ---------- actions ---------- */
@@ -1969,6 +2036,7 @@ function act(name, ...args) {
     case "undo": return undo();
     case "manual": ui.manual = !ui.manual; renderSheet(); if (ui.manual) { const i = $("#manIn"); if (i && i.focus) i.focus(); } return;
     case "manual-ok": { const v = parseLen(arg != null ? String(arg) : (($("#manIn") || {}).value || "")); if (v == null || v < 0) return toast("Mesure non comprise, écris par ex. 3,42"); return onMeasure(v); }
+    case "all-sugg": ui.allSugg = true; return renderSheet();
     case "hist": ui.hist = !ui.hist; return renderSheet();
     case "newRoom": return newRoom();
     case "arrow": return sketchArrow(arg);
