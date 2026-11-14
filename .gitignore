@@ -1,0 +1,6 @@
+# Ne jamais publier de relevés (plans de maison)
+*.json
+*.dxf
+*.pdf
+*.png
+releve-*

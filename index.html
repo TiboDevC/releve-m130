@@ -621,9 +621,11 @@ const Pof = id => solve().P.get(id);
 function undetermined(r) {
   // murs non mesurés de la pièce dont la longueur ne dépend que du croquis (rien d'autre ne la fixe)
   const ws = roomWalls(r).filter(m => !m.obs.length); if (!ws.length) return [];
-  const sol = solve(), over = new Map(ws.map(m => [m.id, (m.sketch != null ? m.sketch : sol.res.get(m.id).kept) + 1]));
-  const pos = lsq(equations(over).concat(sol.auto), sol.idx);
+  // un mur à la fois : changer deux croquis ensemble peut se compenser et faire croire qu'ils sont fixés
+  const sol = solve();
   return ws.filter(m => {
+    const over = new Map([[m.id, (m.sketch != null ? m.sketch : sol.res.get(m.id).kept) + 1]]);
+    const pos = lsq(equations(over).concat(sol.auto), sol.idx);
     const A = pos[sol.idx.get(m.a)], B = pos[sol.idx.get(m.b)], u = dirv(m.ang), k = (B[0] - A[0]) * u[0] + (B[1] - A[1]) * u[1];
     return Math.abs(k - sol.res.get(m.id).kept) > 0.01;
   });
