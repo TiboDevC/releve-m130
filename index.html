@@ -188,6 +188,15 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 .lead { display: flex; flex-direction: column; gap: 2px; }
 .nowrap { flex-wrap: nowrap; }
 
+/* Panneau réductible (plan seul) */
+.grab { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 22px; margin: -8px 0 -4px; padding: 0; border: 0; background: none; flex: none; }
+.grab i { width: 38px; height: 4px; border-radius: 2px; background: var(--dim); flex: none; }
+.grab.open { height: 40px; margin: 0; justify-content: flex-start; font-size: 13px; color: var(--soft); }
+.grab.open span { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font-weight: 600; }
+.grab.open b { font-weight: 500; color: var(--soft); flex: none; }
+#sheet.min { max-height: none; overflow: hidden; padding-top: 4px; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
+.zoom button[aria-pressed="true"] { border-color: var(--ink); }
+@media (min-width: 900px) { .grab:not(.open) { display: none; } #sheet.min { display: none; } }
 /* Téléphone : densité de la maquette (textes et boutons plus compacts, moins de défilement) */
 .btn.undo { white-space: nowrap; }
 @media (max-width: 480px) {
@@ -260,6 +269,7 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
       <button data-act="zin" aria-label="Zoomer">+</button>
       <button data-act="zout" aria-label="Dézoomer">−</button>
       <button data-act="fit" aria-label="Tout afficher"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#eef2f1" stroke-width="1.6" aria-hidden="true"><path d="M2 6 V2 H6 M12 2 H16 V6 M16 12 V16 H12 M6 16 H2 V12"></path></svg></button>
+      <button data-act="sheet-min" id="minBtn" aria-label="Plan seul (réduire le panneau)" aria-pressed="false"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#eef2f1" stroke-width="1.6" aria-hidden="true"><rect x="2" y="2" width="14" height="14" rx="2"></rect><path d="M2 11 H16"></path></svg></button>
     </div>
     <div id="toast" role="status"></div>
   </main>
@@ -1110,6 +1120,7 @@ svg.addEventListener("wheel", e => { e.preventDefault(); const rc = svg.getBound
 new ResizeObserver(() => render()).observe(svg);
 
 function handleTap(t) {
+  if (sheetMin && (t.meas || t.op || t.room) && ui.view !== "maison") sheetMin = false;
   if (ui.view === "maison") { if (t.room) { ui.sel = { type: "room", id: t.room }; ui.armDel = null; refresh(); } return; }
   if (ui.pending) return toast("Réponds d'abord à la question du panneau");
   if (ui.control || ui.height || ui.cote) return toast("Termine la mesure en cours, ou « Plus tard »");
@@ -2242,11 +2253,18 @@ function renderSheet() {
     const r = curRoom();
     h = !r ? welcomeHTML() : r.status === "sketch" ? (D.nav.trace ? traceHTML(r) : sketchHTML(r)) : r.status === "measure" ? measureHTML(r) : closedHTML(r);
   }
+  // plan seul : le panneau se réduit à une barre (titre de l'écran en cours) ; les bips continuent d'arriver là où il le dit
+  sheet.classList.toggle("min", sheetMin);
+  const mb = $("#minBtn"); if (mb) { mb.setAttribute("aria-pressed", sheetMin); mb.setAttribute("aria-label", sheetMin ? "Réafficher le panneau" : "Plan seul (réduire le panneau)"); }
+  if (sheetMin) {
+    const t = (h.match(/<span class="big">([\s\S]*?)<\/span>/) || h.match(/<b[^>]*>([\s\S]*?)<\/b>/) || [, ""])[1].replace(/<[^>]+>/g, "").trim();
+    h = `<button class="grab open" data-act="sheet-min" aria-label="Réafficher le panneau"><i></i><span>${t || "Panneau"}</span><b>Afficher ▲</b></button>`;
+  } else h = `<button class="grab" data-act="sheet-min" aria-label="Réduire le panneau (plan seul)"><i></i></button>` + h;
   sheet.innerHTML = h; sheet.dataset.view = ui.view;
   // nouvel écran du panneau : on repart du haut (sinon une fiche s'ouvre à moitié défilée)
   const sc = sheetKey(); if (sc !== lastSheetKey) { lastSheetKey = sc; sheet.scrollTop = 0; }
 }
-let lastSheetKey = "";
+let lastSheetKey = "", sheetMin = false;
 function sheetKey() {
   const r = curRoom();
   return ui.view === "maison" ? "maison" + (ui.sel ? ui.sel.id : "") : ui.pending ? "pending" : ui.control ? "control" : ui.height ? "height" : ui.cote ? "cote"
@@ -2278,6 +2296,7 @@ function act(name, ...args) {
     case "zin": return zoomAt(1.4);
     case "zout": return zoomAt(1 / 1.4);
     case "fit": return fit();
+    case "sheet-min": sheetMin = !sheetMin; return renderSheet();
     case "conn": return conn === "on" ? toast("M130 connecté") : pickDevice();
     case "house": ui.view = ui.view === "maison" ? "releve" : "maison"; resetUi(); refresh(); return fit();
     case "view": ui.view = arg === "maison" ? "maison" : "releve"; resetUi(); refresh(); return fit();
