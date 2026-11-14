@@ -223,7 +223,7 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 const $ = s => document.querySelector(s);
 const svg = $("#plan"), sheet = $("#sheet"), NS = "http://www.w3.org/2000/svg";
 const KEY = "releve-m130-v5", KEY4 = "releve-m130-v4";
-const DARK = { ink: "#eef2f1", room: "#6fd39a10", laser: "#ff5a47", door: "#f0b440", win: "#63c7e6", muted: "#9aa8ac", soft: "#c5cfd0", label: "#eef2f1", warn: "#ff7a6b", sketch: "#9aa8ac", dim: "#5b686d" };
+const DARK = { ink: "#eef2f1", room: "#6fd39a10", laser: "#ff5a47", door: "#f0b440", win: "#63c7e6", muted: "#9aa8ac", soft: "#c5cfd0", label: "#eef2f1", warn: "#ff9640", sketch: "#9aa8ac", dim: "#5b686d" };
 const LIGHT = { ink: "#1c272c", room: "#1c272c08", laser: "#d93a2b", door: "#b7791f", win: "#2b8db3", muted: "#5b6a70", soft: "#3d4a50", label: "#1c272c", warn: "#1c272c", sketch: "#5b6a70", dim: "#9aa8ac" };
 const STEPS = {
   door: [
@@ -270,7 +270,7 @@ let D = blank(), SOL = null, CHK = null;
 const ui = { view: "releve" };
 function resetUi() {
   Object.assign(ui, { sel: null, wall: null, control: null, height: null, draft: null, pending: null, cote: null, manual: false, toWall: false,
-    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null });
+    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false });
 }
 resetUi();
 let view = { cx: 1.5, cy: 1, s: 60 }, undoStack = [], lastBip = null, conn = navigator.bluetooth ? "off" : "na", lastToast = "";
@@ -995,9 +995,12 @@ function onMeasure(v) {
   if (ui.pending) return refuse("Bip ignoré : réponds d'abord à la question du panneau");
   let msg;
   if (ui.control) {
-    pushUndo(); const m = meas(ui.control); m.obs.push(v); ui.control = null; SOL = null;
+    pushUndo(); const m = meas(ui.control), repl = ui.replace;
+    if (repl) m.obs = [v]; else m.obs.push(v);
+    m.ded = false; ui.control = null; ui.replace = false; SOL = null;
     const rs = solve().res.get(m.id);
-    msg = rs.spread > 0.01 ? `${mName(m)} : ${m.obs.map(x => fmt(x)).join(" / ")} · pas d'accord, une autre mesure tranchera` : `${mName(m)} confirmé : ${fmt(v)} m`;
+    msg = repl ? `${mName(m)} remplacé : ${fmt(v)} m`
+      : rs.spread > 0.01 ? `${mName(m)} : ${m.obs.map(x => fmt(x)).join(" / ")} ne concordent pas. Si l'une est une erreur, retire-la dans la fiche du mur.` : `${mName(m)} confirmé : ${fmt(v)} m`;
   } else if (ui.height) {
     pushUndo(); room(ui.height).height = v; ui.height = null; msg = `Hauteur sous plafond : ${fmt(v, 2)} m`;
   } else if (ui.cote) {
@@ -1702,6 +1705,14 @@ function alignWalls(m1, m2) {
   D.cons.push({ id: nid("c"), kind: "align", a: m1.a, b: m2.a, ax, walls: [m1.id, m2.id] });
   refresh(); toast(`${mName(m1)} et ${mName(m2)} alignés · écart de ${cm(gap)} réparti`);
 }
+function explainFlag(m) {
+  // pourquoi ce mur est signalé : désaccord entre ses propres mesures, ou avec les murs parallèles de la pièce
+  const rs = solve().res.get(m.id), r = roomOfWall(m);
+  if (rs.spread > 0.01) return `Ses mesures ne concordent pas entre elles (${m.obs.map(x => fmt(x)).join(" / ")}). Retire celle qui est fausse, ou ajoute une mesure de contrôle.`;
+  const ax = norm(m.ang) % 180, par = r ? roomWalls(r).filter(w => w.id !== m.id && w.obs.length && norm(w.ang) % 180 === ax) : [];
+  const lst = par.map(w => `${mName(w)} ${fmt(w.obs[w.obs.length - 1])}`).join(", ");
+  return `Avec les autres murs ${ax ? "verticaux" : "horizontaux"} de la pièce${lst ? ` (${lst})` : ""}, la pièce ne se referme pas : il manque ou il y a ${cm(Math.abs(rs.resid[rs.resid.length - 1]))} de trop. L'un de ces murs est sans doute mal mesuré.`;
+}
 function wallFiche(m) {
   const sol = solve(), rs = sol.res.get(m.id), r = roomOfWall(m), flag = rs && rs.flag;
   const eqm = !m.obs.length && sameAs(m);
@@ -1739,7 +1750,14 @@ function wallFiche(m) {
         ${ui.thickPick === m.id ? `<div class="row"><span class="small">Épaisseur connue :</span>${[0.07, 0.1, 0.15, 0.2].map(v => `<button class="mini" data-act="part-thick:${m.id}:${v}">${Math.round(v * 100)} cm</button>`).join("")}</div>` : ""}</div>`;
     }
   }
-  h += `<button class="btn primary" data-act="control:${m.id}">Mesure de contrôle ${mName(m)}</button>
+  if (m.obs.length) {
+    h += `<div class="sec"><span class="label">Mesures de ce mur</span><div class="chips" style="flex-wrap:wrap">${m.obs.map((v, k) =>
+      `<button class="chip" data-act="obs-del:${m.id}:${k}" aria-label="Retirer la mesure ${fmt(v)}">${fmt(v)} m ×</button>`).join("")}</div>
+      <p class="small">Une mesure fausse ? Touche-la pour la retirer${m.obs.length > 1 ? " : l'app ne gardera que les autres" : ""}.</p></div>`;
+    if (flag) h += `<p class="small" style="color:var(--warn-t,#ffb27a)">${explainFlag(m)}</p>`;
+  }
+  h += `${m.obs.length ? `<button class="btn" data-act="replace:${m.id}">Remplacer par une nouvelle mesure</button>` : ""}
+    <button class="btn primary" data-act="control:${m.id}">${m.obs.length ? "Mesure de contrôle" : "Mesurer"} ${mName(m)}</button>
     <button class="btn danger" data-act="delmeas">${ui.armDel === m.id ? "Confirmer la suppression" : "Supprimer"}</button>`;
   return h;
 }
@@ -1775,7 +1793,7 @@ function heightHTML() {
 }
 function controlHTML() {
   const m = meas(ui.control), rs = solve().res.get(m.id);
-  return `<div class="card"><div class="pict">${pictAim(norm(m.ang), m.kind)}</div><div class="cardtxt">${waitLine()}<span class="big">Contrôle ${mName(m)}</span>
+  return `<div class="card"><div class="pict">${pictAim(norm(m.ang), m.kind)}</div><div class="cardtxt">${waitLine()}<span class="big">${ui.replace ? "Nouvelle mesure" : "Contrôle"} ${mName(m)}</span>
     <span class="hint">Même départ (point ${lab(m.a)}), même direction : ${dirName(m.ang)}. ${m.obs.length ? `Déjà mesuré : ${m.obs.map(x => fmt(x)).join(" / ")} m, l'` : "Pas encore mesuré, l'"}ajustement retient ${fmt(rs.kept)} m.</span></div></div>${manualRow()}
     <div class="row" style="flex-wrap:nowrap"><button class="btn grow" data-act="control-later">Plus tard</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
 }
@@ -1922,7 +1940,10 @@ function act(name, ...args) {
     case "wall": ui.wall = arg; return refresh();
     case "wall-fiche": { const r = curRoom(), m = r && currentWall(r); if (m) ui.sel = { type: "meas", id: m.id }; return refresh(); }
     case "close": ui.sel = null; ui.notch = ui.angle = false; ui.thickPick = null; return refresh();
-    case "control": ui.sel = null; ui.control = arg; return refresh();
+    case "control": ui.sel = null; ui.control = arg; ui.replace = false; return refresh();
+    case "replace": ui.sel = null; ui.control = arg; ui.replace = true; return refresh();
+    case "obs-del": { const [mid, k] = [arg, +arg2], m = meas(mid); if (!m || !m.obs[k] && m.obs[k] !== 0) return;
+      pushUndo(); const v = m.obs.splice(k, 1)[0]; SOL = null; refresh(); return toast(`Mesure ${fmt(v)} m retirée de ${mName(m)}`); }
     case "gocontrol": ui.view = "releve"; resetUi(); ui.control = arg; refresh(); return fit();
     case "control-later": ui.control = null; return refresh();
     case "merge": { const p = ui.pending; if (!p) return; ui.pending = null; const r = curRoom(); const m = traceClose(r, p.v, p.ang, p.d); lastBip = { v: p.v }; refresh(); return toast(m); }
