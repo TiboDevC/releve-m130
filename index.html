@@ -315,6 +315,7 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 const $ = s => document.querySelector(s);
 const svg = $("#plan"), sheet = $("#sheet"), NS = "http://www.w3.org/2000/svg";
 const KEY = "releve-m130-v5", KEY4 = "releve-m130-v4";
+const APP_VERSION = "14/11 · 18:00";          // affichée dans le menu : pour savoir si le navigateur a bien pris la dernière version
 const DARK = { ink: "#eef2f1", room: "#6fd39a10", laser: "#ff5a47", door: "#f0b440", win: "#63c7e6", muted: "#9aa8ac", soft: "#c5cfd0", label: "#eef2f1", warn: "#ff9640", sketch: "#9aa8ac", dim: "#5b686d" };
 const LIGHT = { ink: "#1c272c", room: "#1c272c08", laser: "#d93a2b", door: "#b7791f", win: "#2b8db3", muted: "#5b6a70", soft: "#3d4a50", label: "#1c272c", warn: "#1c272c", sketch: "#5b6a70", dim: "#9aa8ac" };
 const STEPS = {
@@ -1974,6 +1975,7 @@ function menuHTML() {
       <button class="mrow" data-act="p2p"><span>Mesure point à point…</span><b>›</b></button></div>
     <div class="sec"><span class="label">M130</span>
       <button class="mrow" data-act="conn"><span>${conn === "on" ? "M130 connecté" : conn === "sleep" ? "Reconnecter le M130" : "Connecter le M130"}</span><b>${cs}</b></button></div>
+    <p class="small">Version de l'app : ${APP_VERSION}. Si elle n'est pas à jour, recharge la page (le navigateur peut garder l'ancienne jusqu'à 10 min).</p>
     <div class="sec"><button class="linkbtn" data-act="proj-del:${PROJ.cur}" style="align-self:flex-start;color:var(--laser-t)">${ui.armDel === "proj:" + PROJ.cur ? "Confirmer : supprimer ce projet" : "Supprimer ce projet…"}</button></div>`;
 }
 
