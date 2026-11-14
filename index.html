@@ -2123,12 +2123,28 @@ function setConn(s) {
   conn = s; renderHeader();
   const w = $("#waitline"); if (w) w.outerHTML = waitLine();
 }
+// identifiants complets du service du M130 (certains navigateurs, dont Bluefy, n'acceptent pas les formes courtes)
+const SVC = "0000ffb0-0000-1000-8000-00805f9b34fb", CHS = ["0000ffb2-0000-1000-8000-00805f9b34fb", "0000ffb1-0000-1000-8000-00805f9b34fb"];
 async function pickDevice() {
   if (!navigator.bluetooth) { conn = "na"; renderHeader(); return toast("Bluetooth indisponible ici : ouvre l'app dans Bluefy (iPhone), Chrome ou Brave (Mac)"); }
-  try {
-    const d = await navigator.bluetooth.requestDevice({ filters: [{ services: [0xffb0] }, { namePrefix: "M130" }], optionalServices: [0xffb0] });
-    useDevice(d); await link(true);
-  } catch (e) { if (e.name !== "NotFoundError") toast("Connexion impossible : réveille le M130 et réessaie"); }
+  // du filtre le plus précis au plus large : si le navigateur refuse un filtre, on essaie le suivant
+  const tries = [
+    { filters: [{ services: [SVC] }, { namePrefix: "M130" }], optionalServices: [SVC] },
+    { filters: [{ namePrefix: "M130" }], optionalServices: [SVC] },
+    { acceptAllDevices: true, optionalServices: [SVC] },
+  ];
+  let err = null;
+  for (const opts of tries) {
+    try { const d = await navigator.bluetooth.requestDevice(opts); useDevice(d); await link(true); return; }
+    catch (e) { err = e; if (e.name !== "TypeError" && e.name !== "NotSupportedError") break; }
+  }
+  const msg = String(err && err.message || ""), name = err && err.name;
+  if (name === "NotFoundError" && /cancel|annul|chooser/i.test(msg)) return;                      // fenêtre fermée par l'utilisateur
+  if (name === "NotFoundError" || /adapter|bluetooth.*(off|disabled|unavailable)/i.test(msg))
+    return toast("Bluetooth du téléphone coupé ou non autorisé : vérifie Réglages → Bluetooth, puis Réglages → Bluefy → Bluetooth");
+  if (name === "SecurityError" || name === "NotAllowedError")
+    return toast("Bluetooth refusé pour ce site : autorise-le dans les réglages du navigateur, puis réessaie");
+  toast(`Connexion impossible (${name || "erreur"} : ${msg.slice(0, 80) || "sans détail"}). Réveille le M130 et réessaie.`);
 }
 function useDevice(d) {
   if (device === d) return;
@@ -2142,8 +2158,8 @@ async function link(loud) {
   if (device.gatt.connected) return setConn("on");
   linking = true; if (loud) setConn("wait");
   try {
-    const server = await timeout(device.gatt.connect(), 10000), svc = await server.getPrimaryService(0xffb0);
-    for (const u of [0xffb2, 0xffb1]) {
+    const server = await timeout(device.gatt.connect(), 10000), svc = await server.getPrimaryService(SVC);
+    for (const u of CHS) {
       try { const ch = await svc.getCharacteristic(u); if (!hooked.has(ch)) { ch.addEventListener("characteristicvaluechanged", onData); hooked.add(ch); } await ch.startNotifications(); } catch {}
     }
     clearTimeout(retry); setConn("on"); toast("M130 connecté");
