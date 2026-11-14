@@ -27,13 +27,13 @@ button:disabled { opacity: .4; cursor: default; }
 :focus-visible { outline: 2px solid var(--laser); outline-offset: 2px; }
 
 header { display: flex; align-items: center; gap: 12px; flex: none; border-bottom: 1px solid var(--line);
-  padding: calc(env(safe-area-inset-top, 0px) + 10px) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); }
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); }
 .iconbtn { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--sheet); display: flex; align-items: center; justify-content: center; padding: 0; flex: none; }
 .iconbtn[aria-pressed="true"] { border-color: var(--ink); }
 .ttl { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; background: none; border: 0; padding: 0; text-align: left; }
 .eyebrow { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .ttl b { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conn { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--soft); border: 1px solid var(--line); border-radius: 999px; padding: 8px 11px; background: transparent; flex: none; white-space: nowrap; }
+.conn { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--soft); border: 1px solid var(--line); border-radius: 999px; padding: 0 12px; min-height: 44px; background: transparent; flex: none; white-space: nowrap; }
 .conn .d { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-sizing: border-box; }
 .conn[data-s="off"] { background: var(--laser); border-color: var(--laser); color: #fff; font-weight: 600; }
 .conn[data-s="off"] .d, .conn[data-s="na"] .d { display: none; }
@@ -49,13 +49,13 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 #stage { position: relative; flex: 1; min-height: 200px; touch-action: none; }
 #plan { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; -webkit-user-select: none; }
 .zoom { position: absolute; right: max(10px, env(safe-area-inset-right, 0px)); top: 10px; display: flex; flex-direction: column; gap: 6px; }
-.zoom button { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--sheet); font-size: 18px; padding: 0; display: flex; align-items: center; justify-content: center; }
-#toast { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 10px;
-  font-size: 14px; font-weight: 600; max-width: calc(100% - 32px); width: max-content; text-align: center; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.zoom button { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--sheet); font-size: 18px; padding: 0; display: flex; align-items: center; justify-content: center; }
+#toast { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 7px 12px; border-radius: 10px;
+  font-size: 13px; line-height: 1.3; font-weight: 600; max-width: calc(100% - 24px); box-shadow: 0 2px 10px #0008; width: max-content; text-align: center; opacity: 0; transition: opacity .2s; pointer-events: none; }
 #toast.show { opacity: 1; }
 
-#sheet { flex: none; max-height: 56%; overflow-y: auto; background: var(--sheet); border-radius: 20px 20px 0 0; display: flex; flex-direction: column; gap: 12px;
-  padding: 16px max(16px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+#sheet { flex: none; max-height: 58%; overflow-y: auto; overscroll-behavior: contain; background: var(--sheet); border-radius: 20px 20px 0 0; display: flex; flex-direction: column; gap: 10px;
+  padding: 14px max(16px, env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
 @media (min-width: 900px) {
   .app { flex-direction: row; }
   #sheet { max-height: none; width: 410px; border-radius: 0; border-left: 1px solid var(--line); }
@@ -64,7 +64,7 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .chips { display: flex; gap: 6px; align-items: center; overflow-x: auto; flex: none; }
-.chip { height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-size: 13px; white-space: nowrap; flex: none; }
+.chip { height: 40px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font-size: 13px; white-space: nowrap; flex: none; }
 .chip.on { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 600; }
 .chip.on.door { background: var(--door); border-color: var(--door); }
 .chip.on.win { background: var(--win); border-color: var(--win); }
@@ -86,7 +86,7 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 .btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 600; }
 .btn.danger { color: var(--laser-t); border-color: var(--laser); }
 .btn.grow { flex: 1; }
-.linkbtn { border: 0; background: none; color: var(--soft); text-decoration: underline; font-size: 13px; padding: 6px 0; }
+.linkbtn { border: 0; background: none; color: var(--soft); text-decoration: underline; text-underline-offset: 3px; font-size: 14px; padding: 0 2px; min-height: 44px; display: inline-flex; align-items: center; flex: none; }
 .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .stat { background: var(--bg); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
 .stat span { font-size: 11px; color: var(--muted); }
@@ -107,18 +107,18 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 .stxt span { font-size: 12px; color: var(--soft); }
 .val { font: 600 14px var(--f-num); }
 .val.m { color: var(--muted); font-weight: 400; }
-.mini { height: 32px; padding: 0 9px; border-radius: 7px; border: 1px solid var(--line); background: transparent; font: 12px var(--f-num); color: var(--soft); }
+.mini { height: 40px; min-width: 44px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line); background: transparent; font: 12px var(--f-num); color: var(--soft); }
 .mini.on { border: 1.5px solid var(--ink); color: var(--ink); font-weight: 600; }
 .swing { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; flex: 1; }
-.swing button { height: 42px; border-radius: 8px; border: 1px solid var(--line); background: transparent; display: flex; align-items: center; justify-content: center; padding: 0; }
+.swing button { height: 48px; border-radius: 8px; border: 1px solid var(--line); background: transparent; display: flex; align-items: center; justify-content: center; padding: 0; }
 .swing button.on { border: 1.5px solid var(--door); background: #f0b44022; }
-.field { height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); padding: 0 10px; font: 15px var(--f-num); min-width: 0; }
+.field { height: 44px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); padding: 0 10px; font: 15px var(--f-num); min-width: 0; }
 .okdot { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: var(--ok); flex: none; }
 .okdot.warn { background: var(--laser); }
-.rrow { display: grid; grid-template-columns: 1fr 66px 86px 36px; align-items: center; min-height: 36px; font-size: 14px; border-radius: 8px; padding: 0 6px; margin: 0 -6px; }
+.rrow { display: grid; grid-template-columns: 1fr 66px 86px 36px; align-items: center; min-height: 44px; font-size: 14px; border-radius: 8px; padding: 0 6px; margin: 0 -6px; }
 .rrow.sel { background: #ffffff0d; }
 .rrow.warn { background: #ff5a4718; }
-.rrow > button:first-child { background: none; border: 0; padding: 6px 0; text-align: left; font-size: 14px; }
+.rrow > button:first-child { background: none; border: 0; padding: 0; min-height: 44px; text-align: left; font-size: 15px; }
 .rrow .g { font: 13px var(--f-num); color: var(--soft); }
 .rrow .x { width: 32px; height: 32px; border: 0; background: none; color: var(--muted); font-size: 18px; }
 .rrow .x.armed { color: var(--laser-t); font-size: 12px; }
@@ -132,7 +132,7 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 .warnbox { border: 1px solid var(--laser); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--bg); }
 .sec { display: flex; flex-direction: column; gap: 8px; }
 .aim { display: flex; gap: 8px; align-items: stretch; }
-.pad { display: grid; grid-template-columns: repeat(3, 50px); grid-template-rows: repeat(3, 50px); gap: 5px; flex: none; }
+.pad { display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 46px); gap: 5px; flex: none; }
 .pad button { border-radius: 10px; border: 1px solid var(--line); background: transparent; font-size: 22px; padding: 0; display: flex; align-items: center; justify-content: center; }
 .pad button.on { border: 1.5px solid var(--laser); background: #ff5a4720; color: var(--laser-t); }
 .pad .mid { font-size: 11px; color: var(--soft); }
@@ -150,18 +150,19 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 /* v5 : étapes de la pièce, pastilles d'avancement, fiches, vérifications */
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 10px; background: var(--bg); flex: none; }
-.seg button { height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--soft); font-size: 13px; }
+.seg button { height: 38px; border: 0; border-radius: 8px; background: transparent; color: var(--soft); font-size: 13px; }
 .seg button.on { background: var(--line); color: var(--ink); font-weight: 600; }
 .seg button.done { color: var(--ok); }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; }
-.pill { height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font: 12px var(--f-num); color: var(--soft); white-space: nowrap; }
+.pill { height: 38px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; font: 12px var(--f-num); color: var(--soft); white-space: nowrap; }
 .pill.ok { border-color: var(--ok); color: var(--ok); }
 .pill.cur { border: 1.5px solid var(--laser); color: var(--laser-t); font-weight: 600; }
 .pill.ded { border-style: dashed; color: var(--muted); }
 .warnpill { border-color: var(--laser); color: var(--laser-t); font-weight: 600; }
 .warnpill[hidden] { display: none; }
 .fhead { display: flex; align-items: center; gap: 8px; }
-.fhead .x { margin-left: auto; width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: transparent; font-size: 20px; padding: 0; color: var(--soft); flex: none; }
+.fhead > .cardtxt { flex: 1; }
+.fhead .x { margin-left: auto; width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: transparent; font-size: 20px; padding: 0; color: var(--soft); flex: none; }
 .sides { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--soft); }
 .chk { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
 .chk.warn { border-color: var(--laser); }
@@ -170,6 +171,16 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 .btn.huge { min-height: 56px; font-size: 17px; }
 .form3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .form3 label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
+/* barre d'actions : collée en bas du panneau (sous le pouce), même quand le panneau défile */
+.bar { position: sticky; bottom: calc(-14px - env(safe-area-inset-bottom, 0px)); z-index: 2; display: flex; gap: 8px; flex: none; background: var(--sheet); border-top: 1px solid var(--line);
+  margin: 0 calc(-1 * max(16px, env(safe-area-inset-right, 0px))) calc(-14px - env(safe-area-inset-bottom, 0px)) calc(-1 * max(16px, env(safe-area-inset-left, 0px)));
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.bar > .btn { flex: 1; min-width: 0; line-height: 1.2; padding: 0 10px; }
+.bar > .btn.primary { flex: 2; }
+#sheet[data-view="maison"] { max-height: 48%; }
+@media (min-width: 900px) { .bar { border-top: 0; padding-top: 4px; } #sheet[data-view="maison"] { max-height: none; } }
+.lead { display: flex; flex-direction: column; gap: 2px; }
+.nowrap { flex-wrap: nowrap; }
 </style>
 </head>
 <body>
@@ -179,6 +190,7 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
   </button>
   <div class="ttl"><span class="eyebrow" id="eyebrow"></span><b id="rname"></b></div>
   <div class="tabs"><button data-act="view:releve" id="tabR">Relevé</button><button data-act="view:maison" id="tabA">Maison</button></div>
+  <button class="iconbtn" id="undoBtn" data-act="undo" aria-label="Annuler la dernière action"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#eef2f1" stroke-width="1.8" aria-hidden="true"><path d="M7 4 L3 8 L7 12"></path><path d="M3 8 H12 A5 5 0 0 1 12 18 H8"></path></svg></button>
   <button class="conn warnpill" id="chk" data-act="checks" aria-label="Vérifications à faire" hidden>⚠ <span id="chkN">0</span></button>
   <button class="conn" id="conn" data-act="conn" data-s="off"><span class="d"></span><span id="connTxt">Connecter</span></button>
 </header>
@@ -318,7 +330,7 @@ function undo() {
   if (!undoStack.length) return toast("Rien à annuler");
   D = JSON.parse(undoStack.pop()); lastBip = null; resetUi(); refresh(); toast("Annulé");
 }
-function refresh() { SOL = null; CHK = null; save(); renderHeader(); renderSheet(); render(); }
+function refresh() { SOL = null; CHK = null; const closed = autoClose(); save(); renderHeader(); renderSheet(); render(); if (closed) setTimeout(() => toast(closed), 0); }
 
 /* ---------- pièces : contours et murs ---------- */
 function edgeMeas(a, b) { const k = ekey(a, b); return D.meas.find(m => m.kind === "wall" && ekey(m.a, m.b) === k); }
@@ -339,6 +351,29 @@ const roomOfWall = m => m ? (roomOfEdge(m.a, m.b) || {}).r || null : null;
 // un mur sans mesure peut tenir sa longueur d'un mur mesuré auquel il est déclaré égal
 const sameAs = m => { for (const c of D.cons) if (c.kind === "equal" && c.walls.includes(m.id)) { const o = D.meas.find(x => x.id === c.walls.find(id => id !== m.id)); if (o && o.obs.length) return o; } return null; };
 const isDone = m => m.obs.length > 0 || !!m.ded || !!sameAs(m);
+// murs sans mesure dont la longueur est fixée par les autres mesures et contraintes (le croquis n'y joue plus)
+let DET = null;
+function determined(m) {
+  if (m.obs.length || m.kind !== "wall") return false;
+  if (!DET || DET.sol !== SOL) {
+    DET = { sol: solve(), set: new Set() };
+    for (const r of D.rooms) { if (!r.loop) continue; const und = new Set(undetermined(r).map(w => w.id)); for (const w of roomWalls(r)) if (!w.obs.length && !und.has(w.id)) DET.set.add(w.id); }
+  }
+  return DET.set.has(m.id);
+}
+// une pièce dont tous les murs sont mesurés ou fixés par les autres est fermée, même sans passer par la mesure guidée
+function autoClose(rooms) {
+  // par défaut : les pièces restées au croquis mais mesurées depuis les fiches ; la mesure guidée garde son propre déroulé
+  let msg = null;
+  for (const r of rooms || D.rooms.filter(x => x.status === "sketch")) {
+    if (!r || !r.loop || r.status === "closed" || !roomWalls(r).some(m => m.obs.length)) continue;
+    SOL = null;
+    if (undetermined(r).length) continue;
+    r.status = "closed"; if (D.cur === r.id) ui.wall = null; SOL = null;
+    msg = `${r.name} : tous les murs sont connus, pièce fermée (${fmt(roomArea(r), 2)} m²)`;
+  }
+  return msg;
+}
 function wallOrder(r) { return roomWalls(r); }
 function currentWall(r) {
   const ws = wallOrder(r);
@@ -671,12 +706,15 @@ function drawHouse(g, P, o) {
     let fsN = o.fs * 1.25, nameW = r.name.length * fsN * .6, rot = 0;
     if (nameW > bw * .9 && bh > bw * 1.5) rot = -90;                                   // pièce étroite et haute : nom vertical
     const room = rot ? bh : bw;
-    if (nameW > room * .9) { fsN = Math.max(9, fsN * room * .9 / nameW); nameW = r.name.length * fsN * .6; }
+    if (nameW > room * .8) { fsN = Math.max(9, fsN * room * .8 / nameW); nameW = r.name.length * fsN * .6; }
+    const showName = !o.screen || (nameW <= room * .95 && (rot ? bw : bh) > fsN * 1.6);
     const showArea = (rot ? bw > o.fs * 3.2 : bh > o.fs * 3.4) && area.length * o.fs * .6 < room * .95;
     const w = rot ? fsN * 1.2 + (showArea ? o.fs * 1.4 : 0) : Math.max(nameW, showArea ? area.length * o.fs * .6 : 0);
     const h = rot ? Math.max(nameW, showArea ? area.length * o.fs * .6 : 0) : fsN * 1.2 + (showArea ? o.fs * 1.4 : 0);
-    fits(cx, cy, w, h);
-    roomLabels.push({ r, cx, cy, fsN, rot, showArea, area });
+    // pièce en cours de mesure : son nom est dans l'en-tête, on laisse la place au rayon du M130
+    const busy = cur && cur.id === r.id && (cur.status === "measure" || o.scale < 40);
+    if (showName && !busy) fits(cx, cy, w, h);
+    roomLabels.push({ r, cx, cy, fsN, rot, showArea: showArea && showName && !busy, area, showName: showName && !busy });
   }
   for (const m of D.meas) {
     const wg = wallGeom(m); if (!wg) continue;
@@ -686,7 +724,7 @@ function drawHouse(g, P, o) {
     if (hl) el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: c.laser, "stroke-opacity": .28, "stroke-width": 12, "stroke-linecap": "round" }, g);
     if (m.kind === "wall") for (const [a, b] of wallPieces(wg, o.screen)) {
       const pa = P(...a), pb = P(...b), at = { x1: pa[0], y1: pa[1], x2: pb[0], y2: pb[1], stroke: flag ? c.warn : sk ? c.sketch : c.ink, "stroke-width": sk ? 3 : 4, "stroke-linecap": "round" };
-      if (o.screen && !m.obs.length && !sameAs(m)) at["stroke-dasharray"] = sk ? "8 6" : "6 5";        // déduit ou croquis : pointillés
+      if (o.screen && !m.obs.length && !sameAs(m) && !(wr && wr.status === "closed" && determined(m))) at["stroke-dasharray"] = sk ? "8 6" : "6 5";        // non fixé : pointillés
       el("line", at, g);
     } else el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: flag ? c.warn : c.muted, "stroke-width": 1.2, "stroke-dasharray": "6 4" }, g);
     if (cw && cw.id === m.id) {
@@ -698,7 +736,7 @@ function drawHouse(g, P, o) {
       const out = [-wg.nin[0], -wg.nin[1]], off = m.kind === "cote" ? -o.fs * .9 : o.fs * 1.2;
       const mx = (A[0] + B[0]) / 2 + out[0] * off, my = (A[1] + B[1]) / 2 + out[1] * off;
       let ang = Math.atan2(B[1] - A[1], B[0] - A[0]) * 180 / Math.PI; if (ang > 90.5 || ang < -89.5) ang += 180;
-      const pre = o.screen && !m.obs.length ? (sameAs(m) ? "=" : "≈") : "", str = pre + fmt(rs ? rs.kept : wg.L, sk ? 2 : o.digits) + (flag ? " !" : "");
+      const pre = o.screen && !m.obs.length ? (sameAs(m) || (wr && wr.status === "closed" && determined(m)) ? "=" : "≈") : "", str = pre + fmt(rs ? rs.kept : wg.L, sk ? 2 : o.digits) + (flag ? " !" : "");
       const len = Math.hypot(B[0] - A[0], B[1] - A[1]), tw = str.length * o.fs * .6, vertical = Math.abs(B[0] - A[0]) < Math.abs(B[1] - A[1]);
       if (len >= tw + 6 && fits(mx, my, vertical ? o.fs * 1.1 : tw, vertical ? tw : o.fs * 1.1))
         txt(g, mx, my, str, { size: o.fs, fill: flag ? c.warn : m.kind === "cote" || sk ? c.muted : c.label, font: o.num, rot: ang, pe: false });
@@ -718,11 +756,11 @@ function drawHouse(g, P, o) {
       el("line", { x1: J[0] - wg.nin[0] * 9, y1: J[1] - wg.nin[1] * 9, x2: J[0] + wg.nin[0] * 9, y2: J[1] + wg.nin[1] * 9, stroke: d.type === "door" ? c.door : c.win, "stroke-width": 3 }, g);
     }
   }
-  for (const { r, cx, cy, fsN, rot, showArea, area } of roomLabels) {
+  for (const { r, cx, cy, fsN, rot, showArea, area, showName } of roomLabels) {
     if (o.screen) el("rect", { x: cx - 50, y: cy - 22, width: 100, height: 44, fill: "transparent", "data-room": r.id }, g);
     const dn = showArea ? fsN * .55 : 0;                                                // décalage nom / surface
     const nx = rot ? cx - dn : cx, ny = rot ? cy : cy - dn, ax = rot ? cx + fsN * .75 : cx, ay = rot ? cy : cy + fsN * .75;
-    txt(g, nx, ny, r.name, { size: fsN, fill: c.label, font: o.ui, weight: 700, rot, pe: false });
+    if (showName) txt(g, nx, ny, r.name, { size: fsN, fill: c.label, font: o.ui, weight: 700, rot, pe: false });
     if (showArea) txt(g, ax, ay, area, { size: o.fs, fill: c.soft, font: o.num, rot, pe: false });
   }
 }
@@ -842,8 +880,10 @@ function fitTo(b) {
   const w = svg.clientWidth, h = svg.clientHeight;
   if (!b || !w) { view = { cx: 1.5, cy: 1, s: 60 }; return render(); }
   const bw = Math.max(b.maxX - b.minX, 1), bh = Math.max(b.maxY - b.minY, 1);
-  view.s = Math.max(8, Math.min((w - 110) / bw, (h - 110) / bh, 160));
-  view.cx = (b.minX + b.maxX) / 2; view.cy = (b.minY + b.maxY) / 2; render();
+  // marges : cotes à gauche et en haut, boutons de zoom à droite, toast et échelle en bas
+  const ml = 34, mr = 70, mt = 34, mb = h < 400 ? 66 : 80;
+  view.s = Math.max(8, Math.min((w - ml - mr) / bw, (h - mt - mb) / bh, 160));
+  view.cx = (b.minX + b.maxX) / 2 - (ml - mr) / 2 / view.s; view.cy = (b.minY + b.maxY) / 2 - (mt - mb) / 2 / view.s; render();
 }
 function focusPoints() {
   const st = Pof(stationId()); if (!st) return [];
@@ -1591,26 +1631,24 @@ function sketchHTML(r) {
   const c = r.contour, last = c[c.length - 1], n = roomWalls(r).length, d = norm(D.nav.dir);
   const arrow = (a, ch, l) => `<button class="${d === a ? "on" : ""}" data-act="arrow:${a}" aria-label="${l}">${ch}</button>`;
   let h = segHTML(r);
-  h += `<div class="card plain"><div class="cardtxt"><span class="big">${r.loop ? "Forme fermée" : `Murs depuis le point ${lab(last)}`}</span><span class="hint">${r.loop
-    ? `${n} murs. Fais glisser un point sur le plan pour que la forme ressemble ; touche un mur pour un décroché ou un angle non droit.`
-    : `Chaque flèche ajoute un mur (≈ ${fmt(DEF, 1)} m, ou la longueur du mur opposé). Fais glisser un point sur le plan pour ajuster la forme.`}</span></div></div>`;
+  h += r.loop ? `<div class="lead"><span class="big">Forme fermée · ${n} murs</span><span class="hint">Fais glisser un point sur le plan pour que la forme ressemble ; touche un mur pour un décroché ou un angle non droit.</span></div>`
+    : `<p class="hint"><b style="color:var(--ink)">Murs depuis le point ${lab(last)}</b> · chaque flèche ajoute un mur (≈ ${fmt(DEF, 1)} m). Glisse un point du plan pour ajuster.</p>`;
   if (!r.loop) h += `<div class="aim"><div class="pad"><span></span>${arrow(270, "↑", "Mur vers le haut du plan")}<span></span>${arrow(180, "←", "Mur vers la gauche du plan")}<span class="mid">${ui.toWall ? "jusqu'au mur" : "mur"}</span>${arrow(0, "→", "Mur vers la droite du plan")}<span></span>${arrow(90, "↓", "Mur vers le bas du plan")}<span></span></div>
     <div class="toggle"><button class="${ui.toWall ? "on" : ""}" data-act="toWall">Jusqu'au mur d'en face<small>${ui.toWall ? "choisis la flèche…" : "s'arrête sur un mur de cette pièce"}</small></button>
       <button data-act="close-shape" ${n < 2 ? "disabled" : ""}>Fermer la forme<small>relie au point ${lab(c[0])}</small></button></div></div>`;
-  h += `<div class="row" style="flex-wrap:nowrap">${undoBtn()}<button class="btn grow" data-act="trace:1">Tracer en mesurant</button></div>
-    <button class="btn primary" data-act="go-measure" ${r.loop ? "" : "disabled"}>Passer aux mesures · ${n} mur${n > 1 ? "s" : ""}</button>`;
   if (!r.loop) h += `<p class="small">Ferme la forme pour passer aux mesures.</p>`;
-  h += `<button class="linkbtn" data-act="newRoom" style="align-self:flex-start">Commencer une autre pièce</button>`;
+  h += `<div class="row nowrap"><button class="btn grow" data-act="trace:1">Tracer en mesurant</button><button class="btn grow" data-act="newRoom">Autre pièce</button></div>
+    <div class="bar">${undoBtn()}<button class="btn primary" data-act="go-measure" ${r.loop ? "" : "disabled"}>Passer aux mesures · ${n} mur${n > 1 ? "s" : ""}</button></div>`;
   return h;
 }
 function traceHTML(r) {
   const c = r.contour, st = c[c.length - 1], d = norm(D.nav.dir), L = lab(st);
   const arrow = (a, ch, l) => `<button class="${d === a ? "on" : ""}" data-act="dir:${a}" aria-label="${l}">${ch}</button>`;
   return segHTML(r) + `<div class="card"><div class="pict">${pictAim(d, "wall")}</div><div class="cardtxt">${waitLine()}<span class="big">${L} → ${letter(D.n.pt)}</span>
-      <span class="hint">${isJamb(st) ? `Dos au montant de la porte (point ${L}), vise ${dirName(d)} jusqu'au coin.` : `Dos du M130 au point ${L}, vise ${dirName(d)} le long du mur.`} Chaque bip trace un mur mesuré.</span></div></div>${manualRow()}
+      <span class="hint">${isJamb(st) ? `Dos au montant de la porte (point ${L}), vise ${dirName(d)} jusqu'au coin.` : `Dos du M130 au point ${L}, vise ${dirName(d)} le long du mur.`}</span></div></div>${manualRow()}
     <div class="aim"><div class="pad"><span></span>${arrow(270, "↑", "Vers le haut du plan")}<span></span>${arrow(180, "←", "Vers la gauche du plan")}<span class="mid">visée</span>${arrow(0, "→", "Vers la droite du plan")}<span></span>${arrow(90, "↓", "Vers le bas du plan")}<span></span></div>
       <div class="toggle"><button data-act="extend">Prolonger jusqu'au mur<small>sans mesurer, ${dirName(d).replace("vers ", "")}</small></button><button data-act="trace:0">Revenir au croquis<small>flèches, sans bip</small></button></div></div>
-    <div class="row" style="flex-wrap:nowrap">${undoBtn()}<button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
+    <div class="bar">${undoBtn()}<button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
 }
 function measureHTML(r) {
   const ws = wallOrder(r), m = currentWall(r), k = ws.indexOf(m) + 1;
@@ -1623,18 +1661,17 @@ function measureHTML(r) {
   }
   h += `<div class="pills" aria-label="Avancement des murs">${ws.map(w => { const st = w === m ? "cur" : w.obs.length ? "ok" : w.ded ? "ded" : "";
     return `<button class="pill ${st}" data-act="wall:${w.id}">${w === m ? "● " : w.obs.length ? "✓ " : ""}${mName(w)}${w.ded && !w.obs.length ? " · déduit" : ""}</button>`; }).join("")}</div>
-    <div class="row" style="flex-wrap:nowrap"><button class="btn grow" data-act="deduce" ${m ? "" : "disabled"}>Ne pas mesurer (déduire)</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>
-    <div class="row" style="flex-wrap:nowrap">${undoBtn()}<button class="btn grow" data-act="wall-fiche" ${m ? "" : "disabled"}>Fiche du mur</button></div>
-    <p class="small">Chaque bip remplit le mur en rouge, puis passe au suivant. Touche un mur du plan pour le mesurer d'abord.</p>`;
+    <div class="row nowrap"><button class="btn grow" data-act="manual">Saisir à la main</button><button class="btn grow" data-act="wall-fiche" ${m ? "" : "disabled"}>Fiche du mur</button></div>
+    <p class="small">Chaque bip remplit le mur en rouge, puis passe au suivant. Touche un mur du plan pour le mesurer d'abord.</p>
+    <div class="bar">${undoBtn()}<button class="btn" data-act="deduce" ${m ? "" : "disabled"}>Ne pas mesurer (déduire)</button></div>`;
   return h;
 }
 function closedHTML(r) {
   return segHTML(r) + `<div class="card plain"><div class="cardtxt"><span class="big">${esc(r.name)} · ${fmt(roomArea(r), 2)} m²</span>
-      <span class="hint">Pièce fermée · écart ${cm(roomGap(r))}. Touche un mur pour y ajouter une porte ou une fenêtre, ou pour une mesure de contrôle.</span></div></div>
+      <span class="hint">Écart ${cm(roomGap(r))}. Touche un mur pour y ajouter une porte, une fenêtre ou une mesure de contrôle.</span></div></div>
     <div class="stats"><div class="stat"><span>Surface</span><b>${fmt(roomArea(r), 2)} m²</b></div><div class="stat"><span>Périmètre</span><b>${fmt(roomPerim(r), 2)} m</b></div><div class="stat"><span>Hauteur</span><b>${r.height ? fmt(r.height, 2) + " m" : "—"}</b></div></div>
-    <button class="btn" data-act="height:${r.id}">Mesurer la hauteur sous plafond</button>
-    <div class="row" style="flex-wrap:nowrap"><button class="btn primary grow" data-act="newRoom">Commencer une pièce</button><button class="btn grow" data-act="house">Voir la maison</button></div>
-    <div class="row" style="flex-wrap:nowrap">${undoBtn()}</div>`;
+    <div class="row nowrap"><button class="btn grow" data-act="height:${r.id}">Mesurer la hauteur</button><button class="btn grow" data-act="house">Voir la maison</button></div>
+    <div class="bar">${undoBtn()}<button class="btn primary" data-act="newRoom">Commencer une pièce</button></div>`;
 }
 function sidesOf(m, target) {
   // noms des deux côtés du mur, placés comme sur le plan
@@ -1692,6 +1729,7 @@ function equalWalls(m1, m2) {
     if (ui.wall && isDone(meas(ui.wall))) { const nx = nextTodo(r, meas(ui.wall)); ui.wall = nx ? nx.id : null; }
     closed = maybeClose(r) || closed;
   }
+  closed = closed || autoClose([roomOfWall(m1), roomOfWall(m2)]);
   refresh(); toast(closed || `${mName(m1)} et ${mName(m2)} ont la même longueur · écart de ${cm(d)} réparti`);
 }
 function alignWalls(m1, m2) {
@@ -1702,8 +1740,9 @@ function alignWalls(m1, m2) {
   if (D.cons.some(c => c.kind === "align" && c.walls && c.walls.includes(m1.id) && c.walls.includes(m2.id))) { refresh(); return toast("Ces deux murs sont déjà alignés"); }
   const ax = a1 === 0 ? 1 : 0, gap = Math.abs(Pof(m1.a)[ax] - Pof(m2.a)[ax]);
   pushUndo();
-  D.cons.push({ id: nid("c"), kind: "align", a: m1.a, b: m2.a, ax, walls: [m1.id, m2.id] });
-  refresh(); toast(`${mName(m1)} et ${mName(m2)} alignés · écart de ${cm(gap)} réparti`);
+  D.cons.push({ id: nid("c"), kind: "align", a: m1.a, b: m2.a, ax, walls: [m1.id, m2.id] }); SOL = null;
+  const closed = autoClose([roomOfWall(m1), roomOfWall(m2)]);
+  refresh(); toast(closed || `${mName(m1)} et ${mName(m2)} alignés · écart de ${cm(gap)} réparti`);
 }
 function explainFlag(m) {
   // pourquoi ce mur est signalé : désaccord entre ses propres mesures, ou avec les murs parallèles de la pièce
@@ -1716,11 +1755,11 @@ function explainFlag(m) {
 function wallFiche(m) {
   const sol = solve(), rs = sol.res.get(m.id), r = roomOfWall(m), flag = rs && rs.flag;
   const eqm = !m.obs.length && sameAs(m);
-  const state = m.obs.length ? `Mesuré ${m.obs.length > 1 ? m.obs.length + " fois : " : ""}${m.obs.map(x => fmt(x)).join(" / ")} m` : eqm ? `Même longueur que ${mName(eqm)} (mesuré)` : m.ded ? "Déduit, sans mesure" : "Croquis, pas encore mesuré";
+  const state = m.obs.length ? `Mesuré ${m.obs.length > 1 ? m.obs.length + " fois : " : ""}${m.obs.map(x => fmt(x)).join(" / ")} m` : eqm ? `Même longueur que ${mName(eqm)} (mesuré)` : determined(m) ? "Connu sans mesure : les autres murs et contraintes le fixent" : m.ded ? "Déduit, sans mesure" : "Croquis, pas encore mesuré";
   const worst = rs ? rs.resid.reduce((a, b) => Math.abs(b) > Math.abs(a) ? b : a, 0) : 0;
-  let h = `<div class="fhead"><span class="label">${m.kind === "wall" ? "Mur" : "Cote à travers"}${r ? " · " + esc(r.name) : ""}</span>${closeX}</div>
-    <div class="cardtxt"><span class="big">${m.kind === "wall" ? "Mur" : "Cote"} ${mName(m)} · ${fmt(rs ? rs.kept : wallLen(m), 2)} m</span>
-    <span class="hint">${flag ? `<b style="color:var(--laser-t)">À vérifier</b> · ` : ""}${state}, ${dirName(m.ang)}.${m.obs.length && Math.abs(worst) > 0.0005 ? ` Écart avec l'ensemble : ${sgn(worst)} cm.` : ""}</span></div>`;
+  let h = `<div class="fhead"><div class="cardtxt"><span class="label">${m.kind === "wall" ? "Mur" : "Cote à travers"}${r ? " · " + esc(r.name) : ""}</span>
+    <span class="big">${m.kind === "wall" ? "Mur" : "Cote"} ${mName(m)} · ${fmt(rs ? rs.kept : wallLen(m), 2)} m</span></div>${closeX}</div>
+    <span class="hint">${flag ? `<b style="color:var(--laser-t)">À vérifier</b> · ` : ""}${state}, ${dirName(m.ang)}.${m.obs.length && Math.abs(worst) > 0.0005 ? ` Écart avec l'ensemble : ${sgn(worst)} cm.` : ""}</span>`;
   if (m.kind === "wall") {
     h += `<div class="sec"><span class="label">Ajouter sur ce mur</span><div class="chips" style="flex-wrap:wrap">
       <button class="chip door" data-act="door">Porte</button><button class="chip door" data-act="passage">Passage</button><button class="chip win" data-act="window">Fenêtre</button>
@@ -1728,9 +1767,9 @@ function wallFiche(m) {
     if (!(norm(m.ang) % 90)) {
       // contrainte de structure posée à la main : ce mur est sur la même ligne qu'un autre (même façade, même hauteur…)
       const al = D.cons.filter(c => c.kind === "align" && c.walls && c.walls.includes(m.id)), eqc = D.cons.filter(c => c.kind === "equal" && c.walls.includes(m.id));
-      h += `<div class="sec"><span class="label">Structure</span>
-        <button class="btn ${ui.alignPick === m.id ? "danger" : ""}" data-act="align-pick:${m.id}">${ui.alignPick === m.id ? "Touche sur le plan le mur aligné…" : "Aligné avec un autre mur…"}</button>
-        <button class="btn ${ui.equalPick === m.id ? "danger" : ""}" data-act="equal-pick:${m.id}">${ui.equalPick === m.id ? "Touche sur le plan le mur de même longueur…" : "Même longueur qu'un autre mur…"}</button>
+      h += `<div class="sec"><span class="label">Structure</span><div class="row nowrap">
+        <button class="btn grow ${ui.alignPick === m.id ? "danger" : ""}" data-act="align-pick:${m.id}" style="line-height:1.2">${ui.alignPick === m.id ? "Touche le mur aligné…" : "Aligné avec un autre mur…"}</button>
+        <button class="btn grow ${ui.equalPick === m.id ? "danger" : ""}" data-act="equal-pick:${m.id}" style="line-height:1.2">${ui.equalPick === m.id ? "Touche le mur de même longueur…" : "Même longueur qu'un autre mur…"}</button></div>
         ${al.length || eqc.length ? `<div class="chips" style="flex-wrap:wrap">${al.map(c => { const o = meas(c.walls.find(id => id !== m.id)); return `<button class="chip" data-act="unalign:${c.id}">Aligné avec ${o ? mName(o) : "?"} ×</button>`; }).join("")}${eqc.map(c => { const o = meas(c.walls.find(id => id !== m.id)); return `<button class="chip" data-act="unalign:${c.id}">Même longueur que ${o ? mName(o) : "?"} ×</button>`; }).join("")}</div>` : ""}</div>`;
     }
     if (ui.notch) {
@@ -1756,31 +1795,39 @@ function wallFiche(m) {
       <p class="small">Une mesure fausse ? Touche-la pour la retirer${m.obs.length > 1 ? " : l'app ne gardera que les autres" : ""}.</p></div>`;
     if (flag) h += `<p class="small" style="color:var(--warn-t,#ffb27a)">${explainFlag(m)}</p>`;
   }
-  h += `${m.obs.length ? `<button class="btn" data-act="replace:${m.id}">Remplacer par une nouvelle mesure</button>` : ""}
-    <button class="btn primary" data-act="control:${m.id}">${m.obs.length ? "Mesure de contrôle" : "Mesurer"} ${mName(m)}</button>
-    <button class="btn danger" data-act="delmeas">${ui.armDel === m.id ? "Confirmer la suppression" : "Supprimer"}</button>`;
+  h += `<div class="row nowrap">${m.obs.length ? `<button class="btn grow" data-act="replace:${m.id}">Remplacer la mesure</button>` : ""}
+    <button class="btn danger grow" data-act="delmeas">${ui.armDel === m.id ? "Confirmer la suppression" : "Supprimer"}</button></div>
+    <div class="bar"><button class="btn primary" data-act="control:${m.id}">${m.obs.length ? "Mesure de contrôle" : "Mesurer"} ${mName(m)}</button></div>`;
   return h;
 }
 function opFiche(o) {
   const m = meas(o.meas), isDoor = o.type === "door", t = isDoor ? (o.swing === "none" ? "Passage" : "Porte") : "Fenêtre";
   const [host, jr] = doorRooms(o), other = jr ? (D.cur === jr.id ? host : jr) : null;
-  let h = `<div class="fhead"><span class="label">${t} ${o.id}</span>${closeX}</div>`;
-  if (isDoor) h += `<button class="btn primary huge" data-act="pass:${o.id}">Passer de l'autre côté →${other ? " " + esc(other.name) : ""}</button>`;
-  h += `<div class="cardtxt"><span class="big">${fmt(o.width, 2)} m de large</span><span class="hint">Sur le mur ${m ? mName(m) : "?"}, à ${fmt(o.pos, 2)} m du coin ${m ? lab(o.ref === "b" ? m.b : m.a) : "?"}${o.height ? ` · ${fmt(o.height, 2)} m de haut` : ""}${o.sill ? ` · allège ${fmt(o.sill, 2)} m` : ""}${o.depth ? ` · embrasure ${Math.round(o.depth * 100)} cm` : ""}.</span></div>`;
+  let h = `<div class="fhead"><div class="cardtxt"><span class="label">${t} ${o.id}</span><span class="big">${fmt(o.width, 2)} m de large</span></div>${closeX}</div>`;
+  h += `<span class="hint">Sur le mur ${m ? mName(m) : "?"}, à ${fmt(o.pos, 2)} m du coin ${m ? lab(o.ref === "b" ? m.b : m.a) : "?"}${o.height ? ` · ${fmt(o.height, 2)} m de haut` : ""}${o.sill ? ` · allège ${fmt(o.sill, 2)} m` : ""}${o.depth ? ` · embrasure ${Math.round(o.depth * 100)} cm` : ""}.</span>`;
   if (isDoor && m) h += swingRow(o, "opswing");
   if (o.pass) h += `<div class="sec"><span class="label">Épaisseur du mur</span><div class="row"><button class="mini ${!o.pass.known ? "on" : ""}" data-act="thick:auto" style="font-family:var(--f-ui)">Calculée</button>
       ${[[0.07, "7"], [0.1, "10"], [0.2, "20"]].map(([v, l]) => `<button class="mini ${o.pass.known && Math.abs(o.pass.t - v) < 1e-6 ? "on" : ""}" data-act="thick:${v}">${l} cm</button>`).join("")}</div>
       <p class="small">${o.pass.fixed ? `Mesurée à travers la porte : ≈ ${fmt(Math.abs(linkThick(o)) * 100, 1)} cm.` : `« Calculée » : sans mesure à travers, l'app suppose ${Math.round(D.thick * 100)} cm.`}</p></div>`;
   h += `<button class="btn danger" data-act="delop">${ui.armDel === o.id ? "Confirmer la suppression" : "Supprimer"}</button>`;
+  if (isDoor) h += `<div class="bar"><button class="btn primary huge" data-act="pass:${o.id}">Passer de l'autre côté →${other ? " " + esc(other.name) : ""}</button></div>`;
   return h;
+}
+function roomConstraintsHTML(r) {
+  const ws = new Set(roomWalls(r).map(m => m.id)), cs = D.cons.filter(c => (c.kind === "align" || c.kind === "equal" || c.kind === "thick") && c.walls && c.walls.some(id => ws.has(id)));
+  if (!cs.length) return "";
+  const txt = c => { const [a, b] = c.walls.map(meas); if (!a || !b) return "?";
+    return c.kind === "align" ? `${mName(a)} aligné avec ${mName(b)}` : c.kind === "equal" ? `${mName(a)} = ${mName(b)} (même longueur)` : `cloison ${mName(a)} / ${mName(b)}`; };
+  return `<div class="sec"><span class="label">Contraintes posées</span><div class="chips" style="flex-wrap:wrap">${cs.map(c => `<button class="chip" data-act="unalign:${c.id}">${txt(c)} ×</button>`).join("")}</div>
+    <p class="small">Si une pièce devient incohérente (murs en orange), une contrainte peut être en cause : touche-la pour la retirer.</p></div>`;
 }
 function roomFiche(r) {
   const cur = r.id === D.cur && ui.view === "releve";
-  return `<div class="fhead"><span class="label">Pièce</span>${closeX}</div>
-    <div class="sec"><span class="label">Nom de la pièce</span>
-      <div class="row" style="flex-wrap:nowrap"><input class="field" id="nameIn" value="${esc(r.name)}" autocomplete="off" style="flex:1;font-family:var(--f-ui)" aria-label="Nom de la pièce"><button class="btn primary" data-act="name-ok">OK</button></div></div>
+  return `<div class="fhead"><span class="label">Pièce · nom</span>${closeX}</div>
+      <div class="row nowrap"><input class="field" id="nameIn" value="${esc(r.name)}" autocomplete="off" style="flex:1;font-family:var(--f-ui)" aria-label="Nom de la pièce"><button class="btn primary" data-act="name-ok">OK</button></div>
     <div class="stats"><div class="stat"><span>Surface</span><b>${r.loop ? fmt(roomArea(r), 2) + " m²" : "—"}</b></div><div class="stat"><span>Périmètre</span><b>${fmt(roomPerim(r), 2)} m</b></div>
       <div class="stat"><span>Hauteur</span><b>${r.height ? fmt(r.height, 2) + " m" : "—"}</b></div></div>
+    ${roomConstraintsHTML(r)}
     ${cur ? "" : `<button class="btn primary" data-act="resume:${r.id}">${r.status === "closed" ? "Aller dans cette pièce" : "Reprendre cette pièce"}</button>`}
     <button class="btn" data-act="height:${r.id}">Mesurer la hauteur sous plafond</button>
     <button class="btn danger" data-act="delroom">${ui.armDel === r.id ? "Confirmer la suppression" : "Supprimer la pièce"}</button>
@@ -1789,19 +1836,19 @@ function roomFiche(r) {
 function heightHTML() {
   const r = room(ui.height);
   return `<div class="card"><div class="pict">${PICT_UP}</div><div class="cardtxt">${waitLine()}<span class="big">Hauteur · ${esc(r ? r.name : "")}</span><span class="hint">Pose le M130 au sol, vise le plafond.</span></div></div>${manualRow()}
-    <div class="row" style="flex-wrap:nowrap"><button class="btn grow" data-act="height-cancel">Plus tard</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
+    <div class="bar"><button class="btn grow" data-act="height-cancel">Plus tard</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
 }
 function controlHTML() {
   const m = meas(ui.control), rs = solve().res.get(m.id);
   return `<div class="card"><div class="pict">${pictAim(norm(m.ang), m.kind)}</div><div class="cardtxt">${waitLine()}<span class="big">${ui.replace ? "Nouvelle mesure" : "Contrôle"} ${mName(m)}</span>
     <span class="hint">Même départ (point ${lab(m.a)}), même direction : ${dirName(m.ang)}. ${m.obs.length ? `Déjà mesuré : ${m.obs.map(x => fmt(x)).join(" / ")} m, l'` : "Pas encore mesuré, l'"}ajustement retient ${fmt(rs.kept)} m.</span></div></div>${manualRow()}
-    <div class="row" style="flex-wrap:nowrap"><button class="btn grow" data-act="control-later">Plus tard</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
+    <div class="bar"><button class="btn grow" data-act="control-later">Plus tard</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
 }
 function coteHTML() {
   const p = ui.cote;
   return `<div class="card"><div class="pict">${pictAim(norm(p.dir), "cote")}</div><div class="cardtxt">${waitLine()}<span class="big">Mesure à travers</span><span class="hint">${coteText(p)}</span></div></div>${manualRow()}
     <p class="small">Le bip fixe l'épaisseur des cloisons traversées, au lieu de la supposer.</p>
-    <div class="row" style="flex-wrap:nowrap"><button class="btn grow" data-act="cote-cancel">Plus tard</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
+    <div class="bar"><button class="btn grow" data-act="cote-cancel">Plus tard</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
 }
 function mergeHTML() {
   const p = ui.pending;
@@ -1812,9 +1859,9 @@ function mergeHTML() {
 }
 function openingHTML() {
   const d = ui.draft, isDoor = d.type === "door", m = d.meas && meas(d.meas);
-  if (!m) return `<div class="card"><div class="cardtxt"><span class="big">${isDoor ? "Porte" : "Fenêtre"}</span><span class="hint">Touche sur le plan le mur où elle se trouve.</span></div></div><button class="btn" data-act="cancel-op">Annuler</button>`;
+  if (!m) return `<div class="card"><div class="cardtxt"><span class="big">${isDoor ? "Porte" : "Fenêtre"}</span><span class="hint">Touche sur le plan le mur où elle se trouve.</span></div></div><div class="bar"><button class="btn" data-act="cancel-op">Annuler</button></div>`;
   const cs = curStep(d), ok = d.pos != null && d.width != null, refL = lab(d.ref === "b" ? m.b : m.a);
-  let h = `<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><b style="font-size:17px">${isDoor ? (d.swing === "none" ? "Passage" : "Porte") : "Fenêtre"} sur ${mName(m)}</b>
+  let h = `<div class="row" style="justify-content:space-between;flex-wrap:nowrap;gap:4px"><b style="font-size:17px">${isDoor ? (d.swing === "none" ? "Passage" : "Porte") : "Fenêtre"} sur ${mName(m)}</b>
     <button class="linkbtn" data-act="pickwall">${ui.pickWall ? "Touche un mur…" : "Changer de mur"}</button></div>
     <div class="row" style="flex-wrap:nowrap"><span class="small" style="flex:1">Coin visé pour la position</span>
     <button class="mini ${d.ref === "a" ? "on" : ""}" data-act="ref:a">${lab(m.a)}</button><button class="mini ${d.ref === "b" ? "on" : ""}" data-act="ref:b">${lab(m.b)}</button></div><div class="steps">`;
@@ -1834,15 +1881,13 @@ function openingHTML() {
       ${st.chips ? `<span class="stxt">${lbl}</span>` : `<button class="stxt" data-act="step:${st.k}" aria-label="Mesurer ${st.t}">${lbl}</button>`}${right}</div>`;
   };
   STEPS[d.type].forEach((st, i) => { if (!st.detail) h += stepRow(st, i); });
-  h += `</div>`;
+  h += `</div><div class="row nowrap" style="justify-content:space-between">${waitLine()}<button class="linkbtn" data-act="manual">Saisir à la main</button></div>${manualRow()}`;
   if (!isDoor) {
     h += `<button class="linkbtn" data-act="details" style="align-self:flex-start" aria-expanded="${ui.details}">${ui.details ? "▾" : "▸"} Détails facultatifs (profondeur, allège, hauteur)</button>`;
     if (ui.details) { h += `<div class="steps">`; STEPS.window.forEach((st, i) => { if (st.detail) h += stepRow(st, i); }); h += `</div>`; }
     if (ui.customDepth) h += `<div class="row" style="flex-wrap:nowrap"><span class="small" style="flex:1">Profondeur de l'embrasure, en cm</span><input class="field" style="width:90px" inputmode="decimal" data-chg="depth" aria-label="Profondeur en centimètres"></div>`;
   } else h += swingRow(d, "swing");
-  h += `<div class="card plain"><div class="cardtxt">${waitLine()}</div></div>${manualRow()}
-    <div class="row" style="flex-wrap:nowrap"><button class="btn grow" data-act="cancel-op">Annuler</button><button class="btn primary grow" data-act="validate" ${ok ? "" : "disabled"}>Valider</button></div>
-    <button class="linkbtn" data-act="manual" style="align-self:flex-start">Saisir à la main</button>`;
+  h += `<div class="bar"><button class="btn" data-act="cancel-op">Annuler</button><button class="btn primary" data-act="validate" ${ok ? "" : "disabled"}>Valider</button></div>`;
   return h;
 }
 function checksHTML() {
@@ -1853,9 +1898,10 @@ function checksHTML() {
 }
 function maisonHTML() {
   const area = D.rooms.reduce((t, r) => t + roomArea(r), 0);
-  let h = `<div style="display:flex;flex-direction:column;gap:4px"><b style="font-size:22px">Ma maison</b>
+  const selR = ui.sel && ui.sel.type === "room" && room(ui.sel.id);
+  // une pièce touchée : sa fiche prend la place du résumé, pour que ses boutons restent visibles
+  let h = selR ? roomFiche(selR) : `<div style="display:flex;flex-direction:column;gap:4px"><b style="font-size:22px">Ma maison</b>
     <span class="hint">${D.rooms.length} pièce${D.rooms.length > 1 ? "s" : ""} · ${D.meas.filter(m => m.obs.length).length} mesures · ${D.openings.length} ouverture${D.openings.length > 1 ? "s" : ""} · <span style="font-family:var(--f-num)">${fmt(area, 1)} m²</span></span></div>`;
-  if (ui.sel && ui.sel.type === "room" && room(ui.sel.id)) h += roomFiche(room(ui.sel.id));
   h += checksHTML();
   const stTxt = r => r.status === "closed" ? `<span class="st-ok">✓</span>` : r.status === "measure" ? `<span class="st-open">${wallOrder(r).filter(isDone).length}/${wallOrder(r).length}</span>` : `<span class="st-open">croquis</span>`;
   h += `<div class="sec"><span class="label">Pièces</span><div>${D.rooms.map(r => `<div class="rrow ${ui.sel && ui.sel.id === r.id ? "sel" : ""}"><button data-act="room:${r.id}">${esc(r.name)}${r.id === D.cur ? " ●" : ""}</button>
@@ -1884,7 +1930,15 @@ function renderSheet() {
     const r = curRoom();
     h = !r ? welcomeHTML() : r.status === "sketch" ? (D.nav.trace ? traceHTML(r) : sketchHTML(r)) : r.status === "measure" ? measureHTML(r) : closedHTML(r);
   }
-  sheet.innerHTML = h;
+  sheet.innerHTML = h; sheet.dataset.view = ui.view;
+  // nouvel écran du panneau : on repart du haut (sinon une fiche s'ouvre à moitié défilée)
+  const sc = sheetKey(); if (sc !== lastSheetKey) { lastSheetKey = sc; sheet.scrollTop = 0; }
+}
+let lastSheetKey = "";
+function sheetKey() {
+  const r = curRoom();
+  return ui.view === "maison" ? "maison" + (ui.sel ? ui.sel.id : "") : ui.pending ? "pending" : ui.control ? "control" : ui.height ? "height" : ui.cote ? "cote"
+    : ui.draft ? "draft" : ui.sel ? ui.sel.type + ui.sel.id : r ? r.id + r.status + D.nav.trace : "welcome";
 }
 function renderHeader() {
   const at = ui.view === "maison", r = curRoom();
@@ -1894,6 +1948,7 @@ function renderHeader() {
   $("#tabR").setAttribute("aria-pressed", !at); $("#tabA").setAttribute("aria-pressed", at);
   // pastille des vérifications : elle mène à la vue Maison, sans jamais remplacer le panneau en cours
   const n = checkList().length, b = $("#chk"); b.hidden = !n; $("#chkN").textContent = n;
+  $("#undoBtn").disabled = !undoStack.length;
   $("#conn").dataset.s = conn;
   $("#connTxt").textContent = { on: "M130", wait: "Connexion…", sleep: "Reconnecter", off: "Connecter", na: "Bluetooth indisponible" }[conn];
 }
