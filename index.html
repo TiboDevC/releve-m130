@@ -191,6 +191,13 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 /* Panneau réductible (plan seul) */
 .hrow { display: grid; grid-template-columns: 82px 54px 1fr; gap: 6px; font-size: 12.5px; align-items: baseline; padding: 3px 0; border-bottom: 1px solid var(--line); }
 .hrow .t { color: var(--muted); font-family: var(--f-num); font-size: 11.5px; } .hrow b { font-family: var(--f-num); font-weight: 600; } .hrow .w { color: var(--soft); } .hrow i { color: var(--laser-t); font-style: normal; }
+.mrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); text-align: left; font-size: 14px; }
+.mrow b { font-weight: 400; color: var(--muted); font-size: 12.5px; white-space: nowrap; } .mrow b.on { color: var(--ok); font-weight: 600; }
+.prow { display: flex; align-items: center; gap: 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); padding: 4px 4px 4px 12px; }
+.prow.sel { border-color: var(--ink); }
+.prow > button:first-child { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: none; border: 0; padding: 6px 0; text-align: left; min-height: 44px; }
+.prow > button:first-child span { font-size: 12px; color: var(--muted); }
+.prow .x { min-width: 40px; height: 40px; border-radius: 8px; border: 0; background: none; color: var(--muted); font-size: 16px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .grab { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 22px; margin: -8px 0 -4px; padding: 0; border: 0; background: none; flex: none; }
 .grab i { width: 38px; height: 4px; border-radius: 2px; background: var(--dim); flex: none; }
@@ -264,6 +271,7 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
   <button class="iconbtn" id="undoBtn" data-act="undo" aria-label="Annuler la dernière action"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#eef2f1" stroke-width="1.8" aria-hidden="true"><path d="M7 4 L3 8 L7 12"></path><path d="M3 8 H12 A5 5 0 0 1 12 18 H8"></path></svg></button>
   <button class="conn warnpill" id="chk" data-act="checks" aria-label="Vérifications à faire" hidden>⚠ <span id="chkN">0</span></button>
   <button class="conn" id="conn" data-act="conn" data-s="off"><span class="d"></span><span id="connTxt">Connecter</span></button>
+  <button class="iconbtn" id="menuBtn" data-act="menu" aria-label="Menu : projets, fichiers, historique" aria-pressed="false"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#eef2f1" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 5 H17 M3 10 H17 M3 15 H17"></path></svg></button>
 </header>
 <div class="app">
   <main id="stage">
@@ -349,12 +357,38 @@ function loadStored() {
   try { const d = JSON.parse(localStorage.getItem(KEY4)); if (d && d.v === 4 && Array.isArray(d.pts)) return migrate(d); } catch {}
   return null;
 }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(D)); } catch {} }
+/* projets : un index (KEY_P) + un relevé par projet. L'ancienne clé KEY reste telle quelle (copie de secours de l'avant-projets). */
+const KEY_P = "releve-m130-projects", KEY_D = id => "releve-m130-p:" + id;
+let PROJ = { cur: null, list: [] };
+function projLoad() {
+  try { const p = JSON.parse(localStorage.getItem(KEY_P)); if (p && Array.isArray(p.list) && p.list.length) { PROJ = p; return; } } catch {}
+  PROJ = { cur: "p1", list: [{ id: "p1", name: "Ma maison", updated: Date.now() }] };
+}
+function projData(id) { try { const d = JSON.parse(localStorage.getItem(KEY_D(id))); if (d && d.v === 5 && Array.isArray(d.pts)) return normalize(d); } catch {} return null; }
+function curProj() { return PROJ.list.find(p => p.id === PROJ.cur) || null; }
+function save() {
+  const p = curProj();
+  if (p) { p.updated = Date.now(); p.rooms = D.rooms.length; try { p.area = D.rooms.reduce((t, r) => t + (r.loop ? roomArea(r) : 0), 0); } catch {} }
+  // la clé historique garde aussi le projet ouvert : copie de secours lisible par les anciennes versions
+  try { const j = JSON.stringify(D); if (p) localStorage.setItem(KEY_D(p.id), j); localStorage.setItem(KEY_P, JSON.stringify(PROJ)); localStorage.setItem(KEY, j); } catch {}
+}
+function projSwitch(id) {
+  save();
+  const d = projData(id); PROJ.cur = id;
+  D = d || blank(); undoStack = []; lastBip = null; SOL = null; ui.view = "releve"; resetUi(); refresh(); fit();
+}
+function projNew(name, data) {
+  save();
+  let k = PROJ.list.length + 1; while (PROJ.list.some(p => p.id === "p" + k)) k++;
+  const id = "p" + k; PROJ.list.push({ id, name: name || `Projet ${PROJ.list.length + 1}`, updated: Date.now() }); PROJ.cur = id;
+  D = data || blank(); undoStack = []; lastBip = null; SOL = null; ui.view = "releve"; resetUi(); refresh(); fit();
+  return id;
+}
 let D = blank(), SOL = null, CHK = null;
 const ui = { view: "releve" };
 function resetUi() {
   Object.assign(ui, { sel: null, wall: null, control: null, height: null, draft: null, pending: null, cote: null, manual: false, toWall: false,
-    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null, thru: null, p2p: null });
+    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null, thru: null, p2p: null, menu: null });
 }
 resetUi();
 let view = { cx: 1.5, cy: 1, s: 60 }, undoStack = [], lastBip = null, conn = navigator.bluetooth ? "off" : "na", lastToast = "";
@@ -1156,6 +1190,7 @@ svg.addEventListener("wheel", e => { e.preventDefault(); const rc = svg.getBound
 new ResizeObserver(() => render()).observe(svg);
 
 function handleTap(t) {
+  if (ui.menu) { ui.menu = null; return refresh(); }
   if (ui.p2p) {
     if (!t.pt) return toast("Touche un point (un coin) sur le plan");
     const q = ui.p2p;
@@ -1208,6 +1243,7 @@ function onMeasure(v) {
   // le bip va uniquement là où l'écran le montre ; sinon il est refusé
   if (ui.view !== "releve") return refuse("Bip ignoré : tu es sur la vue Maison. Reviens au relevé pour mesurer.");
   if (ui.pending) return refuse("Bip ignoré : réponds d'abord à la question du panneau");
+  if (ui.menu) return refuse("Bip ignoré : ferme d'abord le menu");
   let msg;
   const cnt = m => m.obs.length + (m.chk || []).length, before = new Map(D.meas.map(m => [m.id, cnt(m)])), hRoom = ui.height, dr = ui.draft;
   if (ui.control) {
@@ -1822,6 +1858,35 @@ function badPartitions(sol) {
   return facingPairs(sol.P).filter(f => f.g < 0.05 && !known.has([f.p.m, f.q.m].sort().join("|")));
 }
 
+/* ---------- menu ☰ : projet, mesures, M130 ---------- */
+function menuHTML() {
+  const head = (t, back) => `<div class="fhead">${back ? `<button class="x" data-act="menu-back" aria-label="Retour" style="margin-left:0">‹</button>` : ""}<div class="cardtxt"><span class="big">${t}</span></div><button class="x" data-act="menu" aria-label="Fermer le menu">×</button></div>`;
+  if (ui.menu === "projects") {
+    const ls = PROJ.list.slice().sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    return head("Mes projets", true) + `<div class="sec">${ls.map(p => { const cur = p.id === PROJ.cur;
+      return `<div class="prow ${cur ? "sel" : ""}"><button data-act="${cur ? "menu" : "proj-open:" + p.id}"><b>${cur ? "● " : ""}${esc(p.name)}</b><span>${p.rooms != null ? `${p.rooms} pièce${p.rooms > 1 ? "s" : ""}` : ""}${p.area ? ` · ${fmt(p.area, 1)} m²` : ""} · modifié ${when(p.updated)}</span></button>
+        ${cur ? "" : `<button class="x" data-act="proj-del:${p.id}" aria-label="Supprimer ${esc(p.name)}">${ui.armDel === "proj:" + p.id ? "Suppr. ?" : "×"}</button>`}</div>`; }).join("")}</div>
+      <div class="sec"><span class="label">Projet ouvert</span><div class="row nowrap"><input class="field" id="projName" value="${esc((curProj() || {}).name || "")}" style="flex:1" aria-label="Nom du projet"><button class="btn" data-act="proj-name">Renommer</button></div>
+      <div class="row nowrap"><button class="btn grow" data-act="proj-dup">Dupliquer (copie de secours)</button></div></div>
+      <div class="bar"><button class="btn primary grow" data-act="proj-new">+ Nouveau projet</button></div>`;
+  }
+  if (ui.menu === "hist") return head("Historique des mesures", true) + histHTML(true);
+  const nl = (D.log || []).length, pl = pendingList().length, cs = { on: "connecté", wait: "connexion…", sleep: "en veille", off: "non connecté", na: "Bluetooth indisponible dans ce navigateur" }[conn];
+  return head("Menu") + `<div class="sec"><span class="label">Projet · ${esc((curProj() || {}).name || "")}</span>
+      <button class="mrow" data-act="menu-projects"><span>Mes projets</span><b>${PROJ.list.length} ›</b></button>
+      <button class="mrow" data-act="proj-new"><span>+ Nouveau projet</span><b>le projet actuel est gardé</b></button>
+      <div class="row nowrap"><button class="btn grow" data-act="export-json">Exporter le relevé</button><button class="btn grow" data-act="open-json">Ouvrir…</button></div>
+      <div class="row nowrap"><button class="btn grow" data-act="export-pdf">PDF</button><button class="btn grow" data-act="export-png">Image</button><button class="btn grow" data-act="export-dxf">DXF</button></div>
+      <p class="small">« Ouvrir… » ouvre un relevé exporté (v5 ou v4) dans un nouveau projet. De l'iPhone au Mac : Exporter, AirDrop, Ouvrir.</p></div>
+    <div class="sec"><span class="label">Mesures</span>
+      <button class="mrow" data-act="menu-hist"><span>Historique des mesures</span><b>${nl} ›</b></button>
+      <button class="mrow" data-act="checkmode"><span>Mode contrôle${pl ? ` · ${pl} en attente` : ""}</span><b class="${D.checkMode ? "on" : ""}">${D.checkMode ? "activé" : "désactivé"}</b></button>
+      <button class="mrow" data-act="p2p"><span>Mesure point à point…</span><b>›</b></button></div>
+    <div class="sec"><span class="label">M130</span>
+      <button class="mrow" data-act="conn"><span>${conn === "on" ? "M130 connecté" : conn === "sleep" ? "Reconnecter le M130" : "Connecter le M130"}</span><b>${cs}</b></button></div>
+    <div class="sec"><button class="linkbtn" data-act="proj-del:${PROJ.cur}" style="align-self:flex-start;color:var(--laser-t)">${ui.armDel === "proj:" + PROJ.cur ? "Confirmer : supprimer ce projet" : "Supprimer ce projet…"}</button></div>`;
+}
+
 /* ---------- historique des mesures ---------- */
 function logBip(v, before, cnt, hRoom, dr) {
   // chaque bip accepté est daté : à quoi il a servi (mur, cote, hauteur, ouverture)
@@ -1837,14 +1902,14 @@ function obsTimes(m) {
   const used = new Set();
   return m.obs.map(v => { const i = (D.log || []).findIndex((e, k) => !used.has(k) && e.m === m.id && Math.abs(e.v - v) < 1e-9); if (i < 0) return null; used.add(i); return D.log[i].t; });
 }
-function histHTML() {
+function histHTML(full) {
   const L = (D.log || []).slice().reverse();
   if (!L.length) return `<div class="sec"><span class="label">Historique des mesures</span><p class="small">Les mesures sont datées à partir de maintenant.</p></div>`;
   const live = e => { const m = e.m && meas(e.m); return !e.m || (m && (m.obs.some(x => Math.abs(x - e.v) < 1e-9) || (m.chk || []).some(x => Math.abs(x - e.v) < 1e-9))); };
-  const shown = ui.hist ? L : L.slice(0, 5);
+  const shown = full || ui.hist ? L : L.slice(0, 5);
   return `<div class="sec"><span class="label">Historique des mesures · ${L.length}</span>
     ${shown.map(e => `<div class="hrow"><span class="t">${when(e.t)}</span><b>${fmt(e.v)}</b><span class="w">${esc(e.what)}${live(e) ? "" : ` · <i>retirée</i>`}</span></div>`).join("")}
-    ${L.length > 5 ? `<button class="linkbtn" data-act="hist">${ui.hist ? "Réduire" : `Tout voir (${L.length})`}</button>` : ""}</div>`;
+    ${!full && L.length > 5 ? `<button class="linkbtn" data-act="hist">${ui.hist ? "Réduire" : `Tout voir (${L.length})`}</button>` : ""}</div>`;
 }
 
 /* ---------- point à point et mode contrôle ---------- */
@@ -2353,21 +2418,18 @@ function maisonHTML() {
   // une pièce touchée : sa fiche prend la place du résumé, pour que ses boutons restent visibles
   let h = selR ? roomFiche(selR) : `<div style="display:flex;flex-direction:column;gap:4px"><b style="font-size:22px">Ma maison</b>
     <span class="hint">${D.rooms.length} pièce${D.rooms.length > 1 ? "s" : ""} · ${D.meas.filter(m => m.obs.length).length} mesures · ${D.openings.length} ouverture${D.openings.length > 1 ? "s" : ""} · <span style="font-family:var(--f-num)">${fmt(area, 1)} m²</span></span></div>`;
-  h += checksHTML() + controlModeHTML() + histHTML();
+  h += checksHTML() + (pendingList().length ? controlModeHTML() : "");
   const stTxt = r => r.status === "closed" ? `<span class="st-ok">✓</span>` : r.status === "measure" ? `<span class="st-open">${wallOrder(r).filter(isDone).length}/${wallOrder(r).length}</span>` : `<span class="st-open">croquis</span>`;
   h += `<div class="sec"><span class="label">Pièces</span><div>${D.rooms.map(r => `<div class="rrow ${ui.sel && ui.sel.id === r.id ? "sel" : ""}"><button data-act="room:${r.id}">${esc(r.name)}${r.id === D.cur ? " ●" : ""}</button>
       <span class="g">${r.loop ? fmt(roomArea(r), 2) + " m²" : "—"}</span>${stTxt(r)}<span></span></div>`).join("") || `<p class="small">Aucune pièce pour l'instant.</p>`}</div>
       <button class="btn" data-act="newRoom">Commencer une pièce</button></div>
-    <div class="sec"><span class="label">Fichier</span>
-      <div class="row"><button class="btn grow" data-act="export-json">Exporter le relevé</button><button class="btn grow" data-act="open-json">Ouvrir…</button></div>
-      <div class="row" style="flex-wrap:nowrap"><button class="btn grow" data-act="export-pdf">PDF</button><button class="btn grow" data-act="export-png">Image</button><button class="btn grow" data-act="export-dxf">DXF</button></div>
-      <p class="small">De l'iPhone au Mac : « Exporter le relevé », AirDrop, puis « Ouvrir… » sur le Mac (relevés v5 et v4). Fais glisser une pièce isolée pour la placer.</p>
-      <button class="linkbtn" data-act="newhouse" style="align-self:flex-start;color:var(--laser-t)">${ui.armDel === "house" ? "Confirmer : tout effacer" : "Nouvelle maison"}</button></div>`;
+    <div class="sec"><button class="linkbtn" data-act="menu" style="align-self:flex-start">Projets, export, historique, mode contrôle : menu ☰ en haut</button></div>`;
   return h;
 }
 function renderSheet() {
   let h;
-  if (ui.view === "maison") h = maisonHTML();
+  if (ui.menu) h = menuHTML();
+  else if (ui.view === "maison") h = maisonHTML();
   else if (ui.pending) h = mergeHTML();
   else if (ui.control && meas(ui.control)) h = controlHTML();
   else if (ui.height && room(ui.height)) h = heightHTML();
@@ -2396,13 +2458,17 @@ function renderSheet() {
 let lastSheetKey = "", sheetMin = false;
 function sheetKey() {
   const r = curRoom();
+  if (ui.menu) return "menu" + ui.menu;
   return ui.view === "maison" ? "maison" + (ui.sel ? ui.sel.id : "") : ui.pending ? "pending" : ui.control ? "control" : ui.height ? "height" : ui.cote ? "cote" : ui.p2p ? "p2p" + !!ui.p2p.b
     : ui.draft ? "draft" : ui.sel ? ui.sel.type + ui.sel.id : r ? r.id + r.status + D.nav.trace : "welcome";
 }
 function renderHeader() {
   const at = ui.view === "maison", r = curRoom();
   $("#eyebrow").textContent = at ? "Vue maison" : r ? { sketch: "1 · Structure", measure: "2 · Mesures", closed: "Pièce fermée" }[r.status] : "Relevé";
-  $("#rname").textContent = at || !r ? "Ma maison" : r.name;
+  const pn = (curProj() || {}).name || "Ma maison";
+  $("#rname").textContent = ui.menu ? pn : at || !r ? pn : r.name;
+  if (ui.menu) $("#eyebrow").textContent = "Menu";
+  $("#menuBtn").setAttribute("aria-pressed", !!ui.menu);
   $("#houseBtn").setAttribute("aria-pressed", at);
   $("#tabR").setAttribute("aria-pressed", !at); $("#tabA").setAttribute("aria-pressed", at);
   // pastille des vérifications : elle mène à la vue Maison, sans jamais remplacer le panneau en cours
@@ -2486,6 +2552,23 @@ function act(name, ...args) {
     case "details": ui.details = !ui.details; return refresh();
     case "swing": if (ui.draft) { ui.draft.swing = arg; if (arg2) ui.draft.hinge = arg2; } return refresh();
     case "thru": ui.thru = arg; return renderSheet();
+    case "menu": { const was = ui.menu; ui.menu = was ? null : "main"; ui.armDel = null; sheetMin = false; return refresh(); }
+    case "menu-back": ui.menu = "main"; ui.armDel = null; return refresh();
+    case "menu-projects": ui.menu = "projects"; return refresh();
+    case "menu-hist": ui.menu = "hist"; return refresh();
+    case "proj-new": { projNew(); return toast(`Nouveau projet : « ${curProj().name} ». L'ancien est dans Menu ☰ › Mes projets`); }
+    case "proj-open": { if (!PROJ.list.some(p => p.id === arg)) return; projSwitch(arg); return toast(`Projet « ${curProj().name} » ouvert`); }
+    case "proj-name": { const v = (($("#projName") || {}).value || "").trim(); const p = curProj(); if (!v || !p) return; p.name = v; save(); refresh(); return toast("Projet renommé"); }
+    case "proj-dup": { const p = curProj(), copy = JSON.parse(JSON.stringify(D)); projNew(`${p ? p.name : "Projet"} (copie)`, normalize(copy)); return toast("Copie créée et ouverte : l'original reste dans Mes projets"); }
+    case "proj-del": {
+      if (ui.armDel !== "proj:" + arg) { ui.armDel = "proj:" + arg; return renderSheet(); }
+      ui.armDel = null;
+      try { localStorage.removeItem(KEY_D(arg)); } catch {}
+      PROJ.list = PROJ.list.filter(p => p.id !== arg);
+      if (arg === PROJ.cur) { if (PROJ.list.length) { PROJ.cur = null; projSwitch(PROJ.list[0].id); } else { PROJ.cur = null; projNew("Ma maison"); } }
+      else { save(); refresh(); }
+      return toast("Projet supprimé");
+    }
     case "p2p": ui.view = "releve"; resetUi(); ui.p2p = { a: null, b: null }; sheetMin = false; refresh(); fit(); return toast("Point à point : touche le point de départ");
     case "p2p-reset": if (ui.p2p) { ui.p2p = { a: null, b: null }; ui.manual = false; } return refresh();
     case "p2p-cancel": ui.p2p = null; return refresh();
@@ -2563,7 +2646,11 @@ function openData(d, keepUndo) {
 }
 $("#fileIn").addEventListener("change", async e => {
   const f = e.target.files[0]; if (!f) return;
-  try { const d = JSON.parse(await f.text()); if (!openData(d, true)) throw 0; toast(d.v === 4 ? "Relevé v4 ouvert et converti" : "Relevé ouvert"); }
+  try {
+    const d = JSON.parse(await f.text()); if (!d || !Array.isArray(d.pts)) throw 0;
+    projNew(f.name.replace(/\.json$/i, "")); if (!openData(d, false)) throw 0;
+    toast(`${d.v === 4 ? "Relevé v4 converti" : "Relevé"} ouvert dans un nouveau projet : « ${curProj().name} »`);
+  }
   catch { toast("Ce fichier n'est pas un relevé M130 (version 4 ou 5)"); }
   e.target.value = "";
 });
@@ -2756,7 +2843,8 @@ if (navigator.bluetooth && navigator.bluetooth.getDevices) {
 /* ---------- démarrage ---------- */
 let tt;
 function toast(m) { lastToast = m; const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => t.classList.remove("show"), 3000); }
-D = loadStored() || blank();
+projLoad();
+D = (PROJ.cur && projData(PROJ.cur)) || loadStored() || blank();
 refresh();
 requestAnimationFrame(fit);
 
