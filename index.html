@@ -270,7 +270,7 @@ let D = blank(), SOL = null, CHK = null;
 const ui = { view: "releve" };
 function resetUi() {
   Object.assign(ui, { sel: null, wall: null, control: null, height: null, draft: null, pending: null, cote: null, manual: false, toWall: false,
-    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null });
+    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null });
 }
 resetUi();
 let view = { cx: 1.5, cy: 1, s: 60 }, undoStack = [], lastBip = null, conn = navigator.bluetooth ? "off" : "na", lastToast = "";
@@ -384,6 +384,11 @@ function equations(over) {
       const [ux, uy] = c.u, ox = -uy, oy = ux, dx = ux * c.s + ox * c.o * c.t, dy = uy * c.s + oy * c.o * c.t;
       eqs.push({ a: c.a, b: c.b, ax: 0, val: dx, v: c.sa ** 2 * ux * ux + c.sp ** 2 * ox * ox });
       eqs.push({ a: c.a, b: c.b, ax: 1, val: dy, v: c.sa ** 2 * uy * uy + c.sp ** 2 * oy * oy });
+    } else if (c.kind === "equal") {
+      // deux murs parallèles de même longueur : s1·(B1 − A1) − s2·(B2 − A2) = 0 sur leur axe
+      const m1 = meas(c.walls[0]), m2 = meas(c.walls[1]); if (!m1 || !m2) continue;
+      const ax = norm(m1.ang) % 180 ? 1 : 0, s1 = Math.round(dirv(m1.ang)[ax]), s2 = Math.round(dirv(m2.ang)[ax]);
+      eqs.push({ a: m1.a, b: m1.b, ax, val: 0, v: 0.002 ** 2, terms: [[m1.a, -s1], [m1.b, s1], [m2.a, s2], [m2.b, -s2]], ids: [m2.a, m2.b] });
     } else if (c.kind === "align") {
       eqs.push({ a: c.a, b: c.b, ax: c.ax, val: 0, v: 0.002 ** 2 });
     } else if (c.kind === "thick") {
@@ -398,7 +403,7 @@ function equations(over) {
       if (c.t != null) eqs.push({ a: w.a, b: c.p, ax: 1 - ax, val: c.t * dirv(a)[1 - ax], v: SK ** 2 });
     }
   }
-  return eqs.filter(e => pt(e.a) && pt(e.b));
+  return eqs.filter(e => pt(e.a) && pt(e.b) && (!e.ids || e.ids.every(id => pt(id))));
 }
 function gauss(A, b) {
   const n = b.length;
@@ -416,7 +421,12 @@ function lsq(eqs, idx) {
   const n = D.pts.length;
   // un point fixe par groupe de points reliés (le plus ancien) : il garde sa position enregistrée
   const par = D.pts.map((_, i) => i), find = i => par[i] === i ? i : (par[i] = find(par[i]));
-  for (const e of eqs) { const a = find(idx.get(e.a)), b = find(idx.get(e.b)); if (a !== b) par[Math.max(a, b)] = Math.min(a, b); }
+  // chaque équation = somme de coefficients × coordonnées sur un axe ; la forme simple (b − a = val) est un cas particulier
+  const terms = eqs.map(e => {
+    const t = new Map(); for (const [id, c] of e.terms || [[e.a, -1], [e.b, 1]]) t.set(id, (t.get(id) || 0) + c);
+    return [...t].map(([id, c]) => [idx.get(id), c]);
+  });
+  for (const T0 of terms) for (let k = 1; k < T0.length; k++) { const a = find(T0[0][0]), b = find(T0[k][0]); if (a !== b) par[Math.max(a, b)] = Math.min(a, b); }
   const fixed = D.pts.map((_, i) => find(i) === i);
   const map = new Array(n).fill(-1), un = [];
   for (let i = 0; i < n; i++) if (!fixed[i]) { map[i] = un.length; un.push(i); }
@@ -427,9 +437,12 @@ function lsq(eqs, idx) {
       const M = un.length, A = Array.from({ length: M }, () => new Array(M).fill(0)), bv = new Array(M).fill(0);
       eqs.forEach((e, q) => {
         if (e.ax !== ax) return;
-        const ia = idx.get(e.a), ib = idx.get(e.b), w = h[q] / e.v, a = map[ia], b = map[ib];
-        if (b >= 0) { A[b][b] += w; bv[b] += w * e.val; if (a >= 0) A[b][a] -= w; else bv[b] += w * pos[ia][ax]; }
-        if (a >= 0) { A[a][a] += w; bv[a] -= w * e.val; if (b >= 0) A[a][b] -= w; else bv[a] += w * pos[ib][ax]; }
+        const w = h[q] / e.v, T0 = terms[q];
+        for (const [i, ci] of T0) {
+          const ki = map[i]; if (ki < 0) continue;
+          bv[ki] += w * ci * e.val;
+          for (const [j, cj] of T0) { const kj = map[j]; if (kj >= 0) A[ki][kj] += w * ci * cj; else bv[ki] -= w * ci * cj * pos[j][ax]; }
+        }
       });
       const x = gauss(A, bv); if (x) un.forEach((i, k) => { pos[i][ax] = x[k]; });
     }
@@ -437,7 +450,7 @@ function lsq(eqs, idx) {
     let changed = false;
     eqs.forEach((e, q) => {
       if (!e.robust) return;
-      const r = Math.abs(pos[idx.get(e.b)][e.ax] - pos[idx.get(e.a)][e.ax] - e.val) / Math.sqrt(e.v), nh = r <= 2.5 ? 1 : 2.5 / r;
+      const r = Math.abs(terms[q].reduce((t, [i, c]) => t + c * pos[i][e.ax], 0) - e.val) / Math.sqrt(e.v), nh = r <= 2.5 ? 1 : 2.5 / r;
       if (Math.abs(nh - h[q]) > 1e-3) changed = true; h[q] = nh;
     });
     if (!changed) break;
@@ -471,7 +484,7 @@ function autoPartitions(P) {
       ws.push({ r: r.id, m: m.id, a, ax, pos: A[ax], lo: Math.min(A[1 - ax], B[1 - ax]), hi: Math.max(A[1 - ax], B[1 - ax]), out: -nin[ax] });
     });
   }
-  const explicit = new Set(D.cons.filter(c => c.walls).map(c => c.walls.slice().sort().join("|")));
+  const explicit = new Set(D.cons.filter(c => c.walls && c.kind !== "equal").map(c => c.walls.slice().sort().join("|")));
   const fixedPairs = new Map(), eqs = [];
   for (let i = 0; i < ws.length; i++) for (let j = i + 1; j < ws.length; j++) {
     const p = ws[i], q = ws[j], d = q.pos - p.pos;
@@ -950,6 +963,7 @@ function handleTap(t) {
   if (t.meas) {
     const m = meas(t.meas); if (!m) return;
     if (ui.alignPick) { const m1 = meas(ui.alignPick); ui.alignPick = null; return alignWalls(m1, m); }
+    if (ui.equalPick) { const m1 = meas(ui.equalPick); ui.equalPick = null; return equalWalls(m1, m); }
     if (ui.draft) {
       if (m.kind !== "wall") return toast("Une ouverture se place sur un mur, pas sur une cote");
       if (ui.draft.meas && !ui.pickWall && ui.draft.pos != null) return toast("Pour changer de mur, appuie sur « Changer de mur »");
@@ -1657,6 +1671,17 @@ function swingRow(target, actName) {
       `<button class="${target.swing === sw && target.hinge === hi ? "on" : ""}" data-act="${actName}:${sw}:${hi}" aria-label="S'ouvre côté ${esc(sideTxt(sw))}, charnière ${hingeWord(hi)}">${pictSwing(wg, sw, hi)}</button>`).join("")}
     <button class="${target.swing === "none" ? "on" : ""}" data-act="${actName}:none" aria-label="Passage sans porte" style="font-size:11px;color:var(--soft)">aucune</button></div></div>`;
 }
+function equalWalls(m1, m2) {
+  // deux murs parallèles de même longueur (côtés opposés d'une pièce, deux pièces identiques…)
+  if (!m1 || !m2 || m1.id === m2.id) return refresh();
+  const a1 = norm(m1.ang) % 180, a2 = norm(m2.ang) % 180;
+  if (a1 % 90 || a1 !== a2) { refresh(); return toast("Il faut deux murs parallèles, tous deux horizontaux ou tous deux verticaux"); }
+  if (D.cons.some(c => c.kind === "equal" && c.walls.includes(m1.id) && c.walls.includes(m2.id))) { refresh(); return toast("Ces deux murs ont déjà la même longueur"); }
+  const d = Math.abs(wallLen(m1) - wallLen(m2));
+  pushUndo();
+  D.cons.push({ id: nid("c"), kind: "equal", walls: [m1.id, m2.id] });
+  refresh(); toast(`${mName(m1)} et ${mName(m2)} ont la même longueur · écart de ${cm(d)} réparti`);
+}
 function alignWalls(m1, m2) {
   // deux murs parallèles sur une même ligne : on fixe leur coordonnée perpendiculaire commune
   if (!m1 || !m2 || m1.id === m2.id) return refresh();
@@ -1681,10 +1706,11 @@ function wallFiche(m) {
       <button class="chip ${ui.notch ? "on" : ""}" data-act="notch">Décroché</button><button class="chip ${ui.angle ? "on" : ""}" data-act="angle">Angle non droit</button></div></div>`;
     if (!(norm(m.ang) % 90)) {
       // contrainte de structure posée à la main : ce mur est sur la même ligne qu'un autre (même façade, même hauteur…)
-      const al = D.cons.filter(c => c.kind === "align" && c.walls && c.walls.includes(m.id));
+      const al = D.cons.filter(c => c.kind === "align" && c.walls && c.walls.includes(m.id)), eqc = D.cons.filter(c => c.kind === "equal" && c.walls.includes(m.id));
       h += `<div class="sec"><span class="label">Structure</span>
         <button class="btn ${ui.alignPick === m.id ? "danger" : ""}" data-act="align-pick:${m.id}">${ui.alignPick === m.id ? "Touche sur le plan le mur aligné…" : "Aligné avec un autre mur…"}</button>
-        ${al.length ? `<div class="chips" style="flex-wrap:wrap">${al.map(c => { const o = meas(c.walls.find(id => id !== m.id)); return `<button class="chip" data-act="unalign:${c.id}">Aligné avec ${o ? mName(o) : "?"} ×</button>`; }).join("")}</div>` : ""}</div>`;
+        <button class="btn ${ui.equalPick === m.id ? "danger" : ""}" data-act="equal-pick:${m.id}">${ui.equalPick === m.id ? "Touche sur le plan le mur de même longueur…" : "Même longueur qu'un autre mur…"}</button>
+        ${al.length || eqc.length ? `<div class="chips" style="flex-wrap:wrap">${al.map(c => { const o = meas(c.walls.find(id => id !== m.id)); return `<button class="chip" data-act="unalign:${c.id}">Aligné avec ${o ? mName(o) : "?"} ×</button>`; }).join("")}${eqc.map(c => { const o = meas(c.walls.find(id => id !== m.id)); return `<button class="chip" data-act="unalign:${c.id}">Même longueur que ${o ? mName(o) : "?"} ×</button>`; }).join("")}</div>` : ""}</div>`;
     }
     if (ui.notch) {
       const L = wallLen(m), def = v => fmt(v, 2);
@@ -1922,6 +1948,7 @@ function act(name, ...args) {
     case "angle": ui.angle = !ui.angle; ui.notch = false; return renderSheet();
     case "angle-ok": return angleOk(arg);
     case "align-pick": ui.alignPick = ui.alignPick === arg ? null : arg; renderSheet(); return ui.alignPick ? toast("Touche sur le plan le mur qui est sur la même ligne") : null;
+    case "equal-pick": ui.equalPick = ui.equalPick === arg ? null : arg; ui.alignPick = null; renderSheet(); return ui.equalPick ? toast("Touche sur le plan le mur qui a la même longueur") : null;
     case "unalign": pushUndo(); D.cons = D.cons.filter(c => c.id !== arg); refresh(); return toast("Alignement retiré");
     case "delmeas": { const m = ui.sel && meas(ui.sel.id); if (!m) return; if (ui.armDel !== m.id) { ui.armDel = m.id; return renderSheet(); } return deleteMeas(m.id); }
     case "through": return openThrough(arg || (ui.sel && ui.sel.id));
