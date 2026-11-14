@@ -315,7 +315,7 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 const $ = s => document.querySelector(s);
 const svg = $("#plan"), sheet = $("#sheet"), NS = "http://www.w3.org/2000/svg";
 const KEY = "releve-m130-v5", KEY4 = "releve-m130-v4";
-const APP_VERSION = "14/11 · 18:00";          // affichée dans le menu : pour savoir si le navigateur a bien pris la dernière version
+const APP_VERSION = "14/11 · 21:00";          // affichée dans le menu : pour savoir si le navigateur a bien pris la dernière version
 const DARK = { ink: "#eef2f1", room: "#6fd39a10", laser: "#ff5a47", door: "#f0b440", win: "#63c7e6", muted: "#9aa8ac", soft: "#c5cfd0", label: "#eef2f1", warn: "#ff9640", sketch: "#9aa8ac", dim: "#5b686d" };
 const LIGHT = { ink: "#1c272c", room: "#1c272c08", laser: "#d93a2b", door: "#b7791f", win: "#2b8db3", muted: "#5b6a70", soft: "#3d4a50", label: "#1c272c", warn: "#1c272c", sketch: "#5b6a70", dim: "#9aa8ac" };
 const STEPS = {
@@ -391,7 +391,7 @@ let D = blank(), SOL = null, CHK = null;
 const ui = { view: "releve" };
 function resetUi() {
   Object.assign(ui, { sel: null, wall: null, control: null, height: null, draft: null, pending: null, cote: null, manual: false, toWall: false,
-    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null, thru: null, p2p: null, menu: null, planOk: false });
+    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null, thru: null, p2p: null, menu: null, planOk: false, bpos: null });
 }
 resetUi();
 let view = { cx: 1.5, cy: 1, s: 60 }, undoStack = [], lastBip = null, conn = navigator.bluetooth ? "off" : "na", lastToast = "";
@@ -440,7 +440,7 @@ function undo() {
   if (!undoStack.length) return toast("Rien à annuler");
   D = JSON.parse(undoStack.pop()); lastBip = null; resetUi(); refresh(); toast("Annulé");
 }
-function refresh() { SOL = null; CHK = null; syncPlannedDoors(); const closed = autoClose(); save(); renderHeader(); renderSheet(); render(); if (closed) setTimeout(() => toast(closed), 0); }
+function refresh() { SOL = null; CHK = null; if (D.openings.some(o => o.pass)) convertJambDoors(); mergeDoorStarts(); fixDoorLinks(); syncPlannedDoors(); const closed = autoClose(); save(); renderHeader(); renderSheet(); render(); if (closed) setTimeout(() => toast(closed), 0); }
 
 /* ---------- pièces : contours et murs ---------- */
 function edgeMeas(a, b) { const k = ekey(a, b); return D.meas.find(m => m.kind === "wall" && ekey(m.a, m.b) === k); }
@@ -547,8 +547,9 @@ function equations(over, opt) {
     } else if (c.kind === "align") {
       eqs.push({ a: c.a, b: c.b, ax: c.ax, val: 0, v: 0.002 ** 2 });
     } else if (c.kind === "thick") {
-      // les deux faces d'une même cloison : écart = épaisseur (connue, ou estimée et ajustable par les mesures de bout en bout)
-      eqs.push({ a: c.a, b: c.b, ax: c.ax, val: c.sign * c.t, v: (c.known ? 0.003 : 0.03) ** 2 });
+      // les deux faces d'une même cloison : écart = épaisseur (connue, ou supposée et ajustable par les mesures de bout en bout)
+      const dt = opt && opt.thick && opt.thick.id === c.id ? opt.thick.d : 0;
+      eqs.push({ a: c.a, b: c.b, ax: c.ax, val: c.sign * (c.t + dt), v: (c.known ? 0.003 : 0.03) ** 2, thick: c.id });
     } else if (c.kind === "onwall") {
       const w = meas(c.w); if (!w) continue;
       const a = norm(w.ang); if (a % 90) continue;
@@ -558,7 +559,29 @@ function equations(over, opt) {
       if (c.t != null) eqs.push({ a: w.a, b: c.p, ax: 1 - ax, val: c.t * dirv(a)[1 - ax], v: SK ** 2 });
     }
   }
+  for (const e of doorEquations(drop)) eqs.push(e);
   return eqs.filter(e => pt(e.a) && pt(e.b) && (!e.ids || e.ids.every(id => pt(id))));
+}
+function doorEquations(drop) {
+  // porte entre deux pièces (modèle « un mur = un mur ») : le trou est au même endroit des deux côtés de la cloison.
+  // côté A : position mesurée (ou prévue) depuis un coin du mur porteur ; côté B : depuis un coin du mur d'en face (ou le point de départ S).
+  const out = [];
+  for (const o of D.openings) {
+    if (!o.into || o.pass || (drop && drop.has("door:" + o.id))) continue;
+    const W = meas(o.meas); if (!W || norm(W.ang) % 90) continue;
+    const ax = norm(W.ang) % 180 ? 1 : 0, uW = dirv(W.ang), PA = o.ref === "b" ? W.b : W.a, dA = (o.ref === "b" ? -1 : 1) * uW[ax];
+    const sa = o.planned ? PLAN_SA : 0.003;
+    if (o.bs && pt(o.bs)) {
+      const off = o.pos + (o.bsj === "far" ? o.width : 0);
+      out.push({ terms: [[o.bs, 1], [PA, -1]], a: PA, b: o.bs, ax, val: dA * off, v: sa ** 2 + 0.005 ** 2, door: o.id });
+    } else if (o.bw && meas(o.bw)) {
+      const B = meas(o.bw); if (norm(B.ang) % 180 !== norm(W.ang) % 180) continue;
+      const uB = dirv(B.ang), PB = o.bref === "b" ? B.b : B.a, dB = (o.bref === "b" ? -1 : 1) * uB[ax];
+      const sb = o.bmeas ? 0.003 : PLAN_SA;
+      out.push({ terms: [[PA, 1], [PB, -1]], a: PA, b: PB, ax, val: dB * (o.bd + o.width / 2) - dA * (o.pos + o.width / 2), v: sa ** 2 + sb ** 2, door: o.id });
+    }
+  }
+  return out;
 }
 function gauss(A, b) {
   const n = b.length;
@@ -623,7 +646,7 @@ function lsq(eqs, idx) {
 }
 function doorRooms(o) {
   // pièce du mur porteur, pièce des montants (de l'autre côté)
-  const host = roomOfWall(meas(o.meas)), j = o.pass && pt(o.pass.j1), jr = j ? room(j.room) : null;
+  const host = roomOfWall(meas(o.meas)), j = o.pass && pt(o.pass.j1), jr = j ? room(j.room) : o.into ? room(o.into) || null : null;
   return [host, jr];
 }
 function pairFixed(r1, r2) {
@@ -665,7 +688,7 @@ function autoPartitions(P) {
   // On suppose son épaisseur (D.thick) avec une marge large ; les mesures de bout en bout la corrigent.
   const explicit = new Set(D.cons.filter(c => c.walls && c.kind !== "equal").map(c => c.walls.slice().sort().join("|")));
   const fixedPairs = new Map(), eqs = [];
-  for (const { p, q } of facingPairs(P)) {
+  for (const { p, q } of facingPairs(P, true)) {                               // en préparation aussi : les pièces ne se chevauchent pas
     if (explicit.has([p.m, q.m].sort().join("|"))) continue;
     const k = ekey(p.r, q.r); if (!fixedPairs.has(k)) fixedPairs.set(k, pairFixed(p.r, q.r));
     if (fixedPairs.get(k)) continue;
@@ -748,12 +771,23 @@ function jambs(o, L) {
   if (o.ref === "b") { s2 = L - (o.pos || 0); s1 = s2 - (o.width || 0); } else { s1 = o.pos || 0; s2 = s1 + (o.width || 0); }
   return [s1, s2];
 }
+function linkInto(o, R) {
+  D.cons = D.cons.filter(c => !(c.kind === "thick" && c.op === o.id));
+  if (!R) { delete o.into; delete o.bw; delete o.bref; delete o.bd; delete o.bmeas; return; }
+  o.into = R.id; o.bs = null;
+  const tw = twinOf(o, R), W = meas(o.meas); if (!tw || !W) return;
+  const B = meas(tw.meas), pax = norm(W.ang) % 180 ? 0 : 1, PA = Pof(W.a), PB = Pof(B.a);
+  Object.assign(o, { bw: B.id, bref: "a", bd: r3(tw.pos), bmeas: false });
+  D.cons.push({ id: nid("c"), kind: "thick", op: o.id, a: W.a, b: B.a, ax: pax, sign: PB[pax] - PA[pax] >= 0 ? 1 : -1, t: D.thick, known: false, walls: [W.id, B.id] });
+}
 function twinOf(o, R) {
   // porte reliée à une pièce existante : le passage correspondant dans le mur d'en face de cette pièce (calculé, jamais stocké)
   R = R || (o.into && room(o.into)); const m = meas(o.meas), wg = m && wallGeom(m); if (!R || !wg || norm(m.ang) % 90) return null;
   const og = openingGeom(o, wg), mid = [(og.J1[0] + og.J2[0]) / 2, (og.J1[1] + og.J2[1]) / 2], out = [-wg.nin[0], -wg.nin[1]];
   let best = null;
-  for (const w of roomWalls(R)) {
+  const bw = o.bw && meas(o.bw);
+  if (bw && roomOfWall(bw) === R) { const g = wallGeom(bw); if (g) best = { w: bw, g, d: 0 }; }
+  if (!best) for (const w of roomWalls(R)) {
     if (norm(w.ang) % 180 !== norm(m.ang) % 180) continue;
     const g = wallGeom(w); if (!g) continue;
     const d = (g.A[0] - mid[0]) * out[0] + (g.A[1] - mid[1]) * out[1];           // de l'autre côté du mur, à moins de 40 cm
@@ -939,9 +973,13 @@ function drawConstraints(g, P) {
   // contraintes posées à la main (violet). Au repos : un petit point discret sur chaque mur contraint.
   // Quand un mur (ou une pièce) est sélectionné : ses relations en clair, murs liés surlignés et lien explicite.
   const col = "#b69cff", cs = D.cons.filter(c => c.walls && (c.kind === "equal" || c.kind === "align"));
-  if (!cs.length) return;
   const selWall = ui.sel && ui.sel.type === "meas" ? ui.sel.id : null, selRoom = ui.sel && ui.sel.type === "room" ? room(ui.sel.id) : null;
   const roomW = selRoom ? new Set(roomWalls(selRoom).map(m => m.id)) : null;
+  // pièce touchée : ses propres murs ressortent (blanc), pour ne pas les confondre avec les murs liés d'autres pièces
+  if (roomW) for (const id of roomW) { const m = meas(id), wg = m && wallGeom(m); if (!wg) continue; const A = P(...wg.A), B = P(...wg.B);
+    el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: "#eef2f1", "stroke-opacity": .22, "stroke-width": 12, "stroke-linecap": "round", "pointer-events": "none" }, g); }
+  if (!cs.length) return;
+  const own = id => (roomW && roomW.has(id)) || id === selWall;
   const focus = c => (selWall && c.walls.includes(selWall)) || (roomW && c.walls.some(id => roomW.has(id)));
   const geo = id => { const m = meas(id); return m && wallGeom(m); };
   const mid = wg => { const A = P(...wg.A), B = P(...wg.B); return [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2]; };
@@ -949,10 +987,11 @@ function drawConstraints(g, P) {
   for (const c of cs) {
     const gs = c.walls.map(geo); if (gs.some(x => !x)) continue;
     if (!focus(c)) { for (const id of c.walls) marked.add(id); continue; }
-    for (const wg of gs) {                                                  // murs liés : halo violet
+    gs.forEach((wg, k) => {                                                // mur de la sélection : halo violet ; mur lié d'une autre pièce : fin pointillé
       const A = P(...wg.A), B = P(...wg.B);
-      el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: col, "stroke-opacity": .35, "stroke-width": 10, "stroke-linecap": "round", "pointer-events": "none" }, g);
-    }
+      if (own(c.walls[k])) el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: col, "stroke-opacity": .35, "stroke-width": 10, "stroke-linecap": "round", "pointer-events": "none" }, g);
+      else el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: col, "stroke-width": 2, "stroke-dasharray": "2 4", "pointer-events": "none" }, g);
+    });
     if (c.kind === "equal") {
       // un « = » au milieu de chacun des deux murs, et un fin trait qui les relie
       const [a, b] = gs.map(mid);
@@ -994,10 +1033,11 @@ function drawOpening(g, op, wg, P, o) {
     const a = P(...og.G1), b = P(...og.G2);
     for (const off of [-2.5, 2.5]) el("line", { x1: a[0] + og.out[0] * off, y1: a[1] + og.out[1] * off, x2: b[0] + og.out[0] * off, y2: b[1] + og.out[1] * off, stroke: c.win, "stroke-width": 1.8 }, g);
   }
-  if (op.id && o.labels) {
+  const oid = op.id || op.twin;
+  if (oid && o.labels) {
     const m = P((og.J1[0] + og.J2[0]) / 2, (og.J1[1] + og.J2[1]) / 2), q = [m[0] + og.nin[0] * 18, m[1] + og.nin[1] * 18];
-    if (!o.fits || o.fits(q[0], q[1], op.id.length * o.fs * .6, o.fs)) txt(g, q[0], q[1], op.id, { size: o.fs * .9, fill: op.type === "door" ? c.door : c.win, font: o.num, weight: 600, pe: false });
-    if (o.screen) el("circle", { cx: q[0], cy: q[1], r: 18, fill: "transparent", "data-op": op.id }, g);
+    if (op.id && (!o.fits || o.fits(q[0], q[1], oid.length * o.fs * .6, o.fs))) txt(g, q[0], q[1], oid, { size: o.fs * .9, fill: op.type === "door" ? c.door : c.win, font: o.num, weight: 600, pe: false });
+    if (o.screen) el("circle", { cx: q[0], cy: q[1], r: 18, fill: "transparent", "data-op": oid }, g);
   }
 }
 function ray(g, F, u, len, label, sub, faint) {
@@ -1320,6 +1360,10 @@ function onMeasure(v) {
     pushUndo(); room(ui.height).height = v; ui.height = null; msg = `Hauteur sous plafond : ${fmt(v, 2)} m`;
   } else if (ui.cote) {
     pushUndo(); msg = coteBip(v);
+  } else if (ui.bpos) {
+    const o = opening(ui.bpos.op); if (!o) return refuse("Porte introuvable");
+    pushUndo(); Object.assign(o, { bref: ui.bpos.ref, bd: v, bmeas: true }); ui.bpos = null; SOL = null;
+    msg = `${o.id} côté ${roomName(o.into)} : à ${fmt(v)} m du coin`;
   } else if (ui.p2p) {
     if (!ui.p2p.b) return refuse("Bip ignoré : touche d'abord les deux points sur le plan");
     pushUndo(); msg = p2pBip(v);
@@ -1382,7 +1426,7 @@ function newRoom() {
 function dropEmptyRooms(keep) {
   // une pièce commencée sur un point libre, sans aucun mur, disparaît quand on en change
   for (const r of D.rooms.slice()) {
-    if (r.id === keep || r.status !== "sketch" || r.contour.length > 1 || roomWalls(r).length || r.contour.some(isJamb)) continue;
+    if (r.id === keep || r.status !== "sketch" || r.contour.length > 1 || roomWalls(r).length || r.contour.some(isJamb) || doorStartOf(r)) continue;
     D.rooms = D.rooms.filter(x => x !== r);
     D.pts = D.pts.filter(p => !(p.room === r.id && !D.meas.some(m => m.a === p.id || m.b === p.id)));
     if (D.cur === r.id) D.cur = null;
@@ -1397,6 +1441,7 @@ function sketchArrow(dir) {
   if (dir % 90) return toast("Flèches : ↑ ← → ↓ seulement (angle non droit : depuis la fiche du mur)");
   if (ui.toWall) { ui.toWall = false; return toWall(dir, false); }
   let c = r.contour;
+  const ds = doorStartOf(r); if (ds && !roomWalls(r).length) flipDoorStart(ds, dir);
   if (c.length === 2 && edgeDoor(c[0], c[1]) && !roomWalls(r).length) {
     const A = Pof(c[0]), B = Pof(c[1]), u = dirv(dir);
     if ((A[0] - B[0]) * u[0] + (A[1] - B[1]) * u[1] > 0.01) r.contour = c = [c[1], c[0]];   // vers l'embrasure : on part de l'autre montant
@@ -1612,7 +1657,7 @@ function validateOpening() {
   // une pièce est déjà dessinée juste derrière ce mur : la porte y donne directement (passage ouvert dans les deux murs)
   const no = D.openings[D.openings.length - 1], host = roomOfWall(meas(d.meas));
   let linked = null;
-  if (d.type === "door") { const cands = D.rooms.filter(R => R !== host && twinOf(no, R)); if (cands.length === 1) { no.into = cands[0].id; linked = cands[0]; } }
+  if (d.type === "door") { const cands = D.rooms.filter(R => R !== host && twinOf(no, R)); if (cands.length === 1) { linkInto(no, cands[0]); linked = cands[0]; } }
   ui.draft = null; ui.details = false;
   // la fiche de l'ouverture reste ouverte (porte : « Passer de l'autre côté »)
   ui.sel = { type: "op", id };
@@ -1624,6 +1669,21 @@ function syncPlannedDoors() {
   for (let pass = 0; pass < 3; pass++) {
     const upd = [];
     for (const o of D.openings) {
+      if (o.into && o.bw && !o.pass) {
+        const W = meas(o.meas), B = meas(o.bw), gw = W && wallGeom(W), gb = B && wallGeom(B); if (!gw || !gb) continue;
+        const cA = (o.ref === "b" ? gw.L - o.pos - o.width / 2 : o.pos + o.width / 2), CA = [gw.A[0] + gw.u[0] * cA, gw.A[1] + gw.u[1] * cA];
+        const cB = (o.bref === "b" ? gb.L - o.bd - o.width / 2 : o.bd + o.width / 2), CB = [gb.A[0] + gb.u[0] * cB, gb.A[1] + gb.u[1] * cB];
+        if (!o.bmeas) {
+          // côté B pas mesuré : il suit le côté A
+          const t = (CA[0] - gb.A[0]) * gb.u[0] + (CA[1] - gb.A[1]) * gb.u[1], bd = o.bref === "b" ? gb.L - t - o.width / 2 : t - o.width / 2;
+          if (Math.abs(bd - o.bd) > 0.002) { o.bd = r3(bd); upd.push(null); }
+        } else if (o.planned) {
+          // côté B mesuré, côté A seulement prévu : A suit B
+          const t = (CB[0] - gw.A[0]) * gw.u[0] + (CB[1] - gw.A[1]) * gw.u[1], pos = o.ref === "b" ? gw.L - t - o.width / 2 : t - o.width / 2;
+          if (Math.abs(pos - o.pos) > 0.002) { o.pos = r3(Math.max(0, pos)); upd.push(null); }
+        }
+        continue;
+      }
       if (!o.planned || !o.pass) continue;
       const m = meas(o.meas), wg = m && wallGeom(m), J1 = Pof(o.pass.j1), J2 = Pof(o.pass.j2); if (!wg || !J1 || !J2) continue;
       const t1 = (J1[0] - wg.A[0]) * wg.u[0] + (J1[1] - wg.A[1]) * wg.u[1], t2 = (J2[0] - wg.A[0]) * wg.u[0] + (J2[1] - wg.A[1]) * wg.u[1];
@@ -1631,8 +1691,8 @@ function syncPlannedDoors() {
       if (Math.abs(pos - o.pos) > 0.002 || Math.abs(s2 - s1 - o.width) > 0.002) upd.push([o, r3(Math.max(0, pos)), r3(s2 - s1)]);
     }
     if (!upd.length) return;
-    for (const [o, pos, w] of upd) { o.pos = pos; o.width = w; }
-    for (const [o] of upd) relinkOpening(o);
+    for (const u of upd) if (u) { u[0].pos = u[1]; u[0].width = u[2]; }
+    for (const u of upd) if (u) relinkOpening(u[0]);
     SOL = null;
   }
 }
@@ -1663,27 +1723,134 @@ function passDoor(o) {
   }
   const wg = wallGeom(m); if (!wg) return;
   pushUndo(); dropEmptyRooms();
-  const out = [-wg.nin[0], -wg.nin[1]];
-  let J1, J2;
-  if (o.pass && pt(o.pass.j1) && pt(o.pass.j2)) { J1 = pt(o.pass.j1); J2 = pt(o.pass.j2); }
-  else {
-    // deux points de l'autre côté du mur (les montants), reliés au mur par l'épaisseur (inconnue tant qu'aucune mesure ne la fixe)
-    D.cons = D.cons.filter(c => c.op !== o.id);
-    const u = dirv(m.ang), [s1, s2] = jambs(o, solve().res.get(m.id).kept);
-    const left = [wg.nin[1], -wg.nin[0]], sL = left[0] * u[0] + left[1] * u[1] > 0 ? s2 : s1, sR = sL === s2 ? s1 : s2;
-    const o90 = [-u[1], u[0]], side = o90[0] * out[0] + o90[1] * out[1] > 0 ? 1 : -1, t = D.thick, A = wg.A;
-    J1 = addPoint(A[0] + u[0] * sL + out[0] * t, A[1] + u[1] * sL + out[1] * t, null); J2 = addPoint(A[0] + u[0] * sR + out[0] * t, A[1] + u[1] * sR + out[1] * t, null);
-    // porte prévue (plan préparé) : position et largeur souples tant qu'elles ne sont pas mesurées, pour ne pas décaler toute la pièce derrière
-    D.cons.push({ id: nid("c"), kind: "link", op: o.id, a: m.a, b: J1.id, u, s: sL, o: side, t, sa: o.planned ? PLAN_SA : 0.005, sp: 0.05 });
-    D.cons.push({ id: nid("c"), kind: "door", op: o.id, a: J1.id, b: J2.id, u, s: sR - sL, o: side, t: 0, sa: o.planned ? PLAN_SA / 3 : 0.002, sp: 0.002 });
-    o.pass = { j1: J1.id, j2: J2.id, t, known: false };
-  }
-  SOL = null;
-  const P1 = Pof(J1.id), P2 = Pof(J2.id), dv = [P1[0] - P2[0], P1[1] - P2[1]];
-  const turn = dv[0] * out[1] - dv[1] * out[0] > 0 ? 1 : -1, r = newRoomObj([J2.id, J1.id], turn);
-  J1.room = J2.room = r.id; D.cur = r.id; D.nav = { dir: angOf(dv), turn, trace: false };
+  // la pièce derrière démarre sur un point S posé au montant, de l'autre côté de la cloison. À la fermeture de sa forme,
+  // S disparaît : le mur reste entier, d'un coin à l'autre, et la porte y est un trou (au même endroit que côté A).
+  const out = [-wg.nin[0], -wg.nin[1]], u = wg.u, [s1] = jambs(o, wg.L), t = D.thick, A = wg.A, pax = norm(m.ang) % 180 ? 0 : 1;
+  const S = addPoint(A[0] + u[0] * s1 + out[0] * t, A[1] + u[1] * s1 + out[1] * t, null);
+  const r = newRoomObj([S.id], 1); S.room = r.id;
+  Object.assign(o, { into: r.id, bs: S.id, bsj: o.ref === "b" ? "far" : "near", bw: null, bmeas: false });
+  D.cons = D.cons.filter(c => !(c.kind === "thick" && c.op === o.id));
+  D.cons.push({ id: nid("c"), kind: "thick", op: o.id, a: m.a, b: S.id, ax: pax, sign: out[pax] >= 0 ? 1 : -1, t, known: false, walls: [m.id] });
+  D.cur = r.id; D.nav = { dir: angOf([-u[0], -u[1]]), turn: 1, trace: false }; SOL = null;
   resetUi(); ui.view = "releve"; refresh(); fit();
-  toast(`${r.name} : de l'autre côté de ${o.id}. Dessine ses murs depuis le montant ${J1.lab}.`);
+  toast(`${r.name} : de l'autre côté de ${o.id}. Dessine ses murs depuis le montant ${S.lab}, le long du mur ou à angle droit.`);
+}
+function convertJambDoors() {
+  // relevés d'avant « un mur = un mur » : la pièce derrière une porte avait un mur coupé aux deux montants.
+  // On refusionne ce mur (coin → coin), on garde les mesures : montant → coin devient la position de la porte côté B,
+  // et si les deux morceaux étaient mesurés, le mur entier l'est aussi (morceau + porte + morceau).
+  for (const o of D.openings.slice()) {
+    if (!o.pass) continue;
+    const pass = o.pass, j1 = pt(pass.j1), j2 = pt(pass.j2), W = meas(o.meas), B = j1 && room(j1.room);
+    const dropDoorCons = () => { D.cons = D.cons.filter(c => !(c.op === o.id && (c.kind === "link" || c.kind === "door"))); };
+    delete o.pass; SOL = null;
+    if (!j1 || !j2 || !W || !B) { dropDoorCons(); continue; }
+    const c = B.contour, n = c.length; let ia = c.indexOf(j1.id), ib = c.indexOf(j2.id);
+    if (ia >= 0 && ib >= 0 && (ia + 1) % n !== ib) [ia, ib] = [ib, ia];
+    if (ia < 0 || ib < 0 || (ia + 1) % n !== ib || !B.loop) { dropDoorCons(); linkInto(o, B); if (!o.into) o.into = B.id; continue; }
+    const Ja = c[ia], Jb = c[ib], X = c[(ia - 1 + n) % n], Y = c[(ib + 1) % n];
+    const sol = solve(), P = id => sol.P.get(id), len = (a, b) => Math.hypot(P(b)[0] - P(a)[0], P(b)[1] - P(a)[1]);
+    const along = w => w && !(norm(w.ang) % 90) && norm(w.ang) % 180 === norm(W.ang) % 180;
+    const med = w => w && w.obs.length ? w.obs.slice().sort((a, b) => a - b)[Math.floor(w.obs.length / 2)] : null;
+    const wa = edgeMeas(X, Ja), wb = edgeMeas(Jb, Y);
+    let remA = along(wa), remB = along(wb);
+    if (n - (remA ? 1 : 0) - (remB ? 1 : 0) < 3) { remA = remB = false; }
+    const start = remA ? X : Ja, end = remB ? Y : Jb, v = [P(end)[0] - P(start)[0], P(end)[1] - P(start)[1]];
+    const ma = remA ? med(wa) : 0, mb = remB ? med(wb) : 0;
+    const nw = addWall(start, end, axisDir(v[0], v[1]), Math.hypot(v[0], v[1]), (wa && wa.plan) || (wb && wb.plan) ? { plan: true } : {});
+    if (ma != null && mb != null && !o.planned && (remA || remB)) nw.obs = [r3(ma + o.width + mb)];
+    // côté B : un montant posé dans un coin = porte collée à ce coin (c'était la structure du relevé) ; sinon le morceau mesuré montant → coin
+    if (!remA) Object.assign(o, { bref: "a", bd: 0, bmeas: true });
+    else if (!remB) Object.assign(o, { bref: "b", bd: 0, bmeas: true });
+    else if (ma != null) Object.assign(o, { bref: "a", bd: r3(ma), bmeas: true });
+    else if (mb != null) Object.assign(o, { bref: "b", bd: r3(mb), bmeas: true });
+    else Object.assign(o, { bref: "a", bd: r3(len(X, Ja)), bmeas: false });
+    Object.assign(o, { into: B.id, bw: nw.id });
+    const rmW = [remA && wa.id, remB && wb.id].filter(Boolean), rmP = [remA && Ja, remB && Jb].filter(Boolean);
+    for (const op of D.openings.filter(x => x !== o && rmW.includes(x.meas))) {
+      const g = wallGeom(meas(op.meas)), og = g && openingGeom(op, g); if (!og) continue;
+      const u = dirv(nw.ang), t1 = (og.J1[0] - P(start)[0]) * u[0] + (og.J1[1] - P(start)[1]) * u[1], t2 = (og.J2[0] - P(start)[0]) * u[0] + (og.J2[1] - P(start)[1]) * u[1];
+      Object.assign(op, { meas: nw.id, ref: "a", pos: r3(Math.max(0, Math.min(t1, t2))), width: r3(Math.abs(t2 - t1)) });
+    }
+    dropDoorCons();
+    for (const cn of D.cons) {
+      if (cn.walls) cn.walls = cn.walls.map(id => rmW.includes(id) ? nw.id : id);
+      for (const f of ["a", "b", "p"]) if (rmP.includes(cn[f])) cn[f] = start;
+      if (rmW.includes(cn.w)) cn.w = nw.id;
+    }
+    D.cons = D.cons.filter(cn => !(cn.a && cn.a === cn.b) && !(cn.walls && cn.walls.length === 2 && cn.walls[0] === cn.walls[1]));
+    for (const x of D.meas) { if (rmP.includes(x.a)) x.a = start; if (rmP.includes(x.b)) x.b = start; }
+    const pax = norm(W.ang) % 180 ? 0 : 1;
+    D.cons.push({ id: nid("c"), kind: "thick", op: o.id, a: W.a, b: start, ax: pax, sign: P(start)[pax] - P(W.a)[pax] >= 0 ? 1 : -1, t: pass.known ? pass.t : D.thick, known: !!pass.known, walls: [W.id, nw.id] });
+    D.meas = D.meas.filter(x => !rmW.includes(x.id));
+    B.contour = c.filter(id => !rmP.includes(id));
+    D.pts = D.pts.filter(p => !rmP.includes(p.id));
+    SOL = null;
+  }
+}
+function fixDoorLinks() {
+  // un mur porteur ou d'en face a été remplacé (décroché, suppression, coin…) : on refait le lien de la porte et sa cloison
+  for (const o of D.openings) {
+    if (!o.into || o.pass || o.bs) continue;
+    const R = room(o.into); if (!R) { linkInto(o, null); continue; }
+    const B = o.bw && meas(o.bw), c = D.cons.find(x => x.kind === "thick" && x.op === o.id);
+    if (B && roomOfWall(B) === R && c && c.walls.every(id => meas(id)) && pt(c.a) && pt(c.b)) continue;
+    linkInto(o, R); SOL = null;
+  }
+}
+function doorStartOf(r) { return r && r.contour.length === 1 ? D.openings.find(o => o.bs === r.contour[0]) : null; }
+function flipDoorStart(o, dir) {
+  // premier mur depuis S : s'il part à travers la porte, S passe à l'autre montant (le mur part ainsi vers un coin)
+  const W = meas(o.meas), wg = W && wallGeom(W), S = pt(o.bs); if (!wg || !S) return;
+  const u = dirv(dir), al = u[0] * wg.u[0] + u[1] * wg.u[1]; if (Math.abs(al) < 0.9) return;
+  const Sp = Pof(S.id), dA = o.ref === "b" ? -1 : 1, toward = (o.bsj === "far" ? -1 : 1) * dA;   // la porte s'étend de S vers wg.u·toward
+  if (al * toward <= 0) return;
+  const q = [Sp[0] + wg.u[0] * toward * o.width, Sp[1] + wg.u[1] * toward * o.width];
+  S.x = q[0]; S.y = q[1]; o.bsj = o.bsj === "far" ? "near" : "far"; SOL = null;
+}
+function mergeDoorStarts() {
+  // une pièce démarrée depuis une porte vient de se fermer : les deux murs qui se rejoignent en S (de part et d'autre de la porte)
+  // deviennent un seul mur ; la position de la porte côté B est alors comptée depuis un vrai coin.
+  for (const o of D.openings) {
+    if (!o.bs || !o.into) continue;
+    const r = room(o.into), S = o.bs;
+    if (!r || !pt(S)) { o.bs = null; continue; }
+    if (!r.loop || !r.contour.includes(S)) continue;
+    const c = r.contour, n = c.length, i = c.indexOf(S), X = c[(i - 1 + n) % n], Y = c[(i + 1) % n];
+    const W = meas(o.meas), w1 = edgeMeas(X, S), w2 = edgeMeas(S, Y); if (!W) continue;
+    const along = w => w && !(norm(w.ang) % 90) && norm(w.ang) % 180 === norm(W.ang) % 180;
+    const med = w => w.obs.length ? w.obs.slice().sort((a, b) => a - b)[Math.floor(w.obs.length / 2)] : null;
+    const sol = solve(), P = id => sol.P.get(id), len = (a, b) => Math.hypot(P(b)[0] - P(a)[0], P(b)[1] - P(a)[1]);
+    if (along(w1) && along(w2) && n > 3) {
+      const L1 = len(X, S), L2 = len(S, Y), XY = [P(Y)[0] - P(X)[0], P(Y)[1] - P(X)[1]];
+      const nw = addWall(X, Y, axisDir(XY[0], XY[1]), L1 + L2, (w1.plan || w2.plan) ? { plan: true } : {});
+      const m1 = med(w1), m2 = med(w2);
+      if (m1 != null && m2 != null) nw.obs = [r3(m1 + m2)];
+      // côté B : S est au montant, la porte va de S vers X (le premier mur partait de S vers Y, hors de la porte)
+      if (m2 != null) Object.assign(o, { bw: nw.id, bref: "b", bd: r3(m2), bmeas: true });
+      else Object.assign(o, { bw: nw.id, bref: "a", bd: r3(Math.max(0, (m1 != null ? m1 : L1) - o.width)), bmeas: m1 != null && !o.planned });
+      for (const op of D.openings.filter(x => x !== o && (x.meas === w1.id || x.meas === w2.id))) {
+        const g = wallGeom(meas(op.meas)), og = g && openingGeom(op, g); if (!og) continue;
+        const u = dirv(nw.ang), t1 = (og.J1[0] - P(X)[0]) * u[0] + (og.J1[1] - P(X)[1]) * u[1], t2 = (og.J2[0] - P(X)[0]) * u[0] + (og.J2[1] - P(X)[1]) * u[1];
+        Object.assign(op, { meas: nw.id, ref: "a", pos: r3(Math.max(0, Math.min(t1, t2))), width: r3(Math.abs(t2 - t1)) });
+      }
+      for (const cn of D.cons) {
+        if (cn.walls) cn.walls = cn.walls.map(id => id === w1.id || id === w2.id ? nw.id : id);
+        for (const f of ["a", "b", "p"]) if (cn[f] === S) cn[f] = X;
+        if (cn.w === w1.id || cn.w === w2.id) cn.w = nw.id;
+      }
+      D.cons = D.cons.filter(cn => !(cn.a && cn.a === cn.b));
+      for (const cn of D.cons) if (cn.kind === "thick" && cn.op === o.id && !cn.walls.includes(nw.id)) cn.walls.push(nw.id);
+      D.meas = D.meas.filter(x => x !== w1 && x !== w2);
+      r.contour = c.filter(x => x !== S); D.pts = D.pts.filter(p => p.id !== S);
+    } else {
+      // S est un coin : la porte touche ce coin côté B
+      const w = along(w1) ? w1 : along(w2) ? w2 : null;
+      if (w) Object.assign(o, { bw: w.id, bref: w.a === S ? "a" : "b", bd: 0, bmeas: true });
+      for (const cn of D.cons) if (cn.kind === "thick" && cn.op === o.id && w && !cn.walls.includes(w.id)) cn.walls.push(w.id);
+    }
+    o.bs = null; delete o.bsj; SOL = null;
+  }
 }
 function setThick(o, t, known) {
   pushUndo();
@@ -1805,7 +1972,7 @@ function otherSide(m) {
     const [, jr] = doorRooms(o); if (jr) return { room: jr, door: o, t: linkThick(o), assumed: !(o.pass.known || o.pass.fixed) };
   }
   const c = D.cons.find(c => c.kind === "thick" && c.walls && c.walls.includes(m.id));
-  if (c) { const ow = meas(c.walls.find(w => w !== m.id)); return { room: roomOfWall(ow), wall: ow, t: Math.abs(fitThick(c)), assumed: !c.known, cons: c }; }
+  if (c && c.walls.length > 1) { const ow = meas(c.walls.find(w => w !== m.id)); return { room: roomOfWall(ow), wall: ow, t: Math.abs(fitThick(c)), assumed: thickStatus(c) === "supposée", status: thickStatus(c), cons: c }; }
   const e = solve().auto.find(e => e.auto.includes(m.id));
   if (e) { const ow = meas(e.auto.find(w => w !== m.id)), A = Pof(e.a), B = Pof(e.b); return { room: roomOfWall(ow), wall: ow, t: Math.abs(B[e.ax] - A[e.ax]), assumed: true }; }
   // mur posé sur la ligne des montants d'une porte venant d'ailleurs
@@ -1816,24 +1983,56 @@ function otherSide(m) {
   }
   return null;
 }
+function solidAt(m, t) {
+  // le dos du M130 a besoin d'un mur plein : pas une porte, un passage ou une fenêtre (de ce côté ou du côté voisin)
+  const wg = wallGeom(m); if (!wg || t < 0.05 || t > wg.L - 0.05) return false;
+  return !openingsOn(m.id).some(o => { const [a, b] = jambs(o, wg.L); return t > Math.min(a, b) - 0.06 && t < Math.max(a, b) + 0.06; });
+}
+const crossedBy = o => D.meas.find(m => m.kind === "cote" && (m.doors || []).includes(o.id));
 function throughProposal(o) {
-  // mesure concrète : depuis le mur d'en face de la porte (pièce porteuse), à travers la porte, jusqu'au mur d'en face de l'autre pièce
+  if (crossedBy(o)) return null;                                               // déjà mesurée à travers : on ne la repropose pas
+  // mesure concrète qui traverse la porte : dos du M130 contre un mur plein d'une des deux pièces, visée perpendiculaire à travers la porte.
+  // On essaie plusieurs points dans la largeur de la porte (le milieu d'abord), depuis la pièce porteuse puis depuis l'autre pièce ;
+  // de préférence une visée qui ne traverse que cette cloison.
   const [host, other] = doorRooms(o); if (!host || !other || !host.loop || !other.loop) return null;
   const m = meas(o.meas), wg = wallGeom(m); if (!wg || norm(m.ang) % 90) return null;
-  const [s1, s2] = jambs(o, wg.L), sc = (s1 + s2) / 2, C = [wg.A[0] + wg.u[0] * sc, wg.A[1] + wg.u[1] * sc], nin = wg.nin, out = [-nin[0], -nin[1]];
-  const hA = rayHitRoom(host, [C[0] + nin[0] * 0.02, C[1] + nin[1] * 0.02], nin, [m.id]); if (!hA) return null;
-  const t0 = Math.abs(linkThick(o)) + 0.03, hB = rayHitRoom(other, [C[0] + out[0] * t0, C[1] + out[1] * t0], out, []); if (!hB) return null;
-  const par = w => norm(w.ang) % 180 === norm(m.ang) % 180;
-  if (!par(hA.m) || !par(hB.m)) return null;
-  const swg = wallGeom(hA.m), t = (hA.q[0] - swg.A[0]) * swg.u[0] + (hA.q[1] - swg.A[1]) * swg.u[1];
-  return { sw: hA.m.id, t, dir: angOf(out), tw: hB.m.id, door: o.id, len: Math.hypot(hB.q[0] - hA.q[0], hB.q[1] - hA.q[1]), rA: host.id, rB: other.id };
+  const [s1, s2] = jambs(o, wg.L), lo = Math.min(s1, s2) + 0.08, hi = Math.max(s1, s2) - 0.08; if (hi < lo) return null;
+  const nin = wg.nin, out = [-nin[0], -nin[1]], par = w => norm(w.ang) % 180 === norm(m.ang) % 180;
+  const offs = [0.5, 0.35, 0.65, 0.2, 0.8, 0.05, 0.95].map(k => lo + (hi - lo) * k);
+  const sides = [{ from: host, look: nin, aim: out, rA: host, rB: other }, { from: other, look: out, aim: nin, rA: other, rB: host }];
+  let best = null;
+  for (const sd of sides) for (const sc of offs) {
+    const C = [wg.A[0] + wg.u[0] * sc, wg.A[1] + wg.u[1] * sc];
+    const away = sd.from === host ? 0.02 : 0.45, h = rayHitRoom(sd.from, [C[0] + sd.look[0] * away, C[1] + sd.look[1] * away], sd.look, sd.from === host ? [m.id] : []);
+    if (!h || !par(h.m)) continue;
+    const swg = wallGeom(h.m), t = (h.q[0] - swg.A[0]) * swg.u[0] + (h.q[1] - swg.A[1]) * swg.u[1];
+    if (!solidAt(h.m, t)) continue;
+    const ray = houseRay(h.q, sd.aim, h.m.id); if (!ray || !ray.ok || !ray.doors.includes(o.id)) continue;
+    const single = ray.doors.length === 1, cand = { sw: h.m.id, t, dir: angOf(sd.aim), tw: ray.w.id, door: o.id, doors: ray.doors, len: ray.t, rA: sd.rA.id, rB: (roomOfWall(ray.w) || sd.rB).id, single };
+    if (single) return cand;
+    if (!best) best = cand;
+  }
+  return best;
+}
+let THS = { sol: null, map: new Map() };
+function thickStatus(c) {
+  // « mesurée » : saisie à la main ; « déduite » : les mesures fixent l'écart (une mesure à travers, ou les alignements) ;
+  // « supposée » : seule l'épaisseur par défaut le fixe
+  if (c.known) return "mesurée";
+  const base = solve(); if (THS.sol !== base) THS = { sol: base, map: new Map() };
+  if (THS.map.has(c.id)) return THS.map.get(c.id);
+  const pos = lsq(equations(null, { thick: { id: c.id, d: 0.03 } }).concat(base.auto), base.idx);
+  const ia = base.idx.get(c.a), ib = base.idx.get(c.b), g1 = pos[ib][c.ax] - pos[ia][c.ax], g0 = base.P.get(c.b)[c.ax] - base.P.get(c.a)[c.ax];
+  // les mesures pèsent plus que la valeur par défaut : décaler celle-ci de 3 cm déplace la cloison de moins de 40 %
+  const st = Math.abs(g1 - g0) < 0.012 ? "déduite" : "supposée";
+  THS.map.set(c.id, st); return st;
 }
 function assumedPairs() {
   const sol = solve(), map = new Map();
   const get = (r1, r2) => { if (!r1 || !r2 || r1 === r2) return null; const k = ekey(r1.id, r2.id); if (!map.has(k)) map.set(k, { r1, r2, doors: [], assumed: false }); return map.get(k); };
   for (const o of D.openings) if (o.pass) { const [h, j] = doorRooms(o), p = get(h, j); if (p) { p.doors.push(o); if (!(o.pass.known || o.pass.fixed)) p.assumed = true; } }
   for (const e of sol.auto) { const p = get(roomOfWall(meas(e.auto[0])), roomOfWall(meas(e.auto[1]))); if (p) p.assumed = true; }
-  for (const c of D.cons) if (c.kind === "thick" && !c.known && c.walls) { const p = get(roomOfWall(meas(c.walls[0])), roomOfWall(meas(c.walls[1]))); if (p) p.assumed = true; }
+  for (const c of D.cons) if (c.kind === "thick" && !c.known && c.walls && c.walls.length > 1 && thickStatus(c) === "supposée") { const p = get(roomOfWall(meas(c.walls[0])), roomOfWall(meas(c.walls[1]))); if (p) { p.assumed = true; const o = c.op && opening(c.op); if (o && !p.doors.includes(o)) p.doors.push(o); } }
   return [...map.values()].filter(p => p.assumed && !pairFixed(p.r1.id, p.r2.id));
 }
 function houseRay(S, d, skip) {
@@ -1859,7 +2058,7 @@ function throughOptions(m) {
   const wg = wallGeom(m); if (!wg || norm(m.ang) % 90 || wg.L < 0.25) return [];
   const runs = [];
   for (let t = 0.08; t <= wg.L - 0.08 + 1e-9; t += 0.04) {
-    const S = [wg.A[0] + wg.u[0] * t, wg.A[1] + wg.u[1] * t], h = houseRay(S, wg.nin, m.id);
+    const S = [wg.A[0] + wg.u[0] * t, wg.A[1] + wg.u[1] * t], h = solidAt(m, t) ? houseRay(S, wg.nin, m.id) : null;
     const k = h && h.ok ? h.w.id + "|" + h.doors.join(",") : null, last = runs[runs.length - 1];
     if (last && last.k === k) last.ts.push(t); else runs.push({ k, h, ts: [t] });
   }
@@ -1880,6 +2079,10 @@ function coteText(p) {
   if (p.free) {
     const L = wallLen(sw), near = p.t <= L / 2, d = near ? p.t : L - p.t;
     return `Dos du M130 contre le mur ${mName(sw)}${rA ? ` (${esc(rA.name)})` : ""}, à ${fmt(d, 2)} m du coin ${lab(near ? sw.a : sw.b)}, vise ${dirName(p.dir)} ${p.doors.length ? `en passant par ${p.doors.join(" puis ")}` : "à travers la pièce"} jusqu'au mur ${tw ? `${mName(tw)}${rB ? ` (${esc(rB.name)})` : ""}` : "d'en face"} · ≈ ${fmt(p.len, 2)} m.${p.width < 0.3 ? " Le passage est étroit : vise bien droit." : ""}`;
+  }
+  if (p.doors && p.doors.length) {
+    const L = wallLen(sw), near = p.t <= L / 2, d = near ? p.t : L - p.t;
+    return `Dos du M130 contre le mur ${mName(sw)}${rA ? ` (${esc(rA.name)})` : ""}, à ${fmt(d, 2)} m du coin ${lab(near ? sw.a : sw.b)}, vise ${dirName(p.dir)} à travers ${p.doors.join(" puis ")} jusqu'au mur ${tw ? `${mName(tw)}${rB ? ` (${esc(rB.name)})` : ""}` : "d'en face"} · ≈ ${fmt(p.len, 2)} m.${p.single === false ? ` La visée traverse ${p.doors.length} cloisons : elle donne leur somme.` : ""}`;
   }
   return `Dos du M130 contre le mur ${mName(sw)}${rA ? ` (${esc(rA.name)})` : ""}${p.door ? `, en face de ${p.door}` : ""}, vise ${dirName(p.dir)} à travers ${p.door ? "la porte" : "la pièce"} jusqu'au mur ${tw ? `${mName(tw)}${rB ? ` (${esc(rB.name)})` : ""}` : "d'en face"}${p.len ? ` · ≈ ${fmt(p.len, 2)} m` : ""}.`;
 }
@@ -1914,7 +2117,7 @@ function coteBip(v) {
   let tw = c.tw && meas(c.tw); if (tw && !nearWall(E, tw, 0.3)) tw = null; if (!tw) tw = wallUnder(E, [sw.id]);
   const pe = addPoint(E[0], E[1], r && r.id);
   if (tw) { const tg = wallGeom(tw); D.cons.push({ id: nid("c"), kind: "onwall", p: pe.id, w: tw.id, t: (E[0] - tg.A[0]) * tg.u[0] + (E[1] - tg.A[1]) * tg.u[1] }); }
-  const m = { id: nid("m"), a: ps.id, b: pe.id, ang: c.dir, obs: D.checkMode ? [] : [v], kind: "cote" }; D.meas.push(m);
+  const m = { id: nid("m"), a: ps.id, b: pe.id, ang: c.dir, obs: D.checkMode ? [] : [v], kind: "cote", doors: c.doors || (c.door ? [c.door] : []) }; D.meas.push(m);
   if (D.checkMode) { m.chk = [v]; m.sketch = v; ui.cote = null; return chkMsg(m, v); }
   const o = c.door && opening(c.door);
   if (o && o.pass && tw && tw.id === c.tw) o.pass.fixed = m.id;
@@ -2042,6 +2245,13 @@ function p2pBip(v) {
   m.obs.push(v); SOL = null;
   const rs = solve().res.get(m.id);
   return `${mName(m)} : ${fmt(v)} m${rs.flag ? ` · s'écarte de ${sgn(rs.kept - v)} cm du plan, à vérifier` : " ✓ ajouté au plan"}`;
+}
+function bposHTML() {
+  const o = opening(ui.bpos.op), B = meas(o.bw), R = room(o.into), corner = ui.bpos.ref === "b" ? B.b : B.a;
+  return `<div class="card"><div class="cardtxt">${waitLine()}<span class="big">${o.id} côté ${esc(R.name)}</span>
+    <span class="hint">Dos du M130 dans le coin ${lab(corner)}, vise le long du mur ${mName(B)} jusqu'au montant de la porte le plus proche.</span></div></div>
+    <div class="row nowrap"><span class="small" style="flex:1">Depuis le coin</span><button class="mini ${ui.bpos.ref === "a" ? "on" : ""}" data-act="bpos-ref:a">${lab(B.a)}</button><button class="mini ${ui.bpos.ref === "b" ? "on" : ""}" data-act="bpos-ref:b">${lab(B.b)}</button></div>${manualRow()}
+    <div class="bar"><button class="btn grow" data-act="bpos-cancel">Plus tard</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
 }
 function p2pHTML() {
   const q = ui.p2p;
@@ -2246,7 +2456,12 @@ function closedHTML(r) {
       <div class="pills">${roomWalls(r).map(w => `<button class="pill" data-act="add-on:${w.id}">${mName(w)} · ${fmt(wallLen(w), 2)}</button>`).join("")}</div>
       <div class="bar"><button class="btn grow" data-act="add-cancel">Annuler</button></div>`;
   }
-  return segHTML(r) + `<div class="cardtxt"><span class="big">${esc(r.name)}</span><span class="hint">${info}</span></div>
+  // cloisons de cette pièce encore supposées : la mesure à travers qui les fixe, proposée tout de suite (on est dans la pièce)
+  const todo = D.openings.filter(o => o.into && (roomOfWall(meas(o.meas)) === r || o.into === r.id)).map(o => ({ o, c: D.cons.find(x => x.kind === "thick" && x.op === o.id && x.walls.length > 1) }))
+    .filter(x => x.c && thickStatus(x.c) === "supposée").map(x => ({ o: x.o, p: throughProposal(x.o) })).filter(x => x.p);
+  const thr = todo.length ? `<div class="chk"><span class="label">Cloison à fixer · ${todo[0].o.id}</span><span class="hint">${coteText(todo[0].p)}</span>
+    <div class="row"><button class="btn primary" data-act="through-op:${todo[0].o.id}">Faire cette mesure</button></div>${todo.length > 1 ? `<p class="small">Encore ${todo.length - 1} cloison${todo.length > 2 ? "s" : ""} de cette pièce à fixer ensuite.</p>` : ""}</div>` : "";
+  return segHTML(r) + `<div class="cardtxt"><span class="big">${esc(r.name)}</span><span class="hint">${info}</span></div>${thr}
     <div class="grid2"><button class="btn" data-act="add-pick:window">+ Fenêtre</button><button class="btn" data-act="add-pick:door">+ Porte</button><button class="btn" data-act="add-pick:through">À travers…</button><button class="btn" data-act="p2p">Point à point…</button></div>
     <p class="small">Ou touche un mur du plan : porte, passage, fenêtre, mesure de contrôle, mesure à travers.</p>
     <div class="bar">${undoBtn()}<button class="btn primary" data-act="newRoom">Commencer une pièce</button></div>`;
@@ -2517,6 +2732,22 @@ function opFiche(o) {
     if (o.into && room(o.into)) h += `<div class="sec"><span class="label">De l'autre côté</span><div class="row nowrap"><span class="hint" style="flex:1">Donne sur <b>${esc(room(o.into).name)}</b>${twinOf(o) ? "" : " (mur d'en face introuvable)"}</span><button class="btn" data-act="op-into:${o.id}:">Détacher</button></div></div>`;
     else if (cands.length) h += `<div class="sec"><span class="label">De l'autre côté : une pièce déjà dessinée ?</span><div class="row">${cands.map(R => `<button class="btn" data-act="op-into:${o.id}:${R.id}">Donne sur ${esc(R.name)}</button>`).join("")}</div></div>`;
   }
+  if (o.into && !o.pass && room(o.into)) {
+    const R = room(o.into), B = o.bw && meas(o.bw), c = D.cons.find(x => x.kind === "thick" && x.op === o.id && x.walls.length > 1);
+    if (B) h += `<div class="sec"><span class="label">Côté ${esc(R.name)}</span><span class="hint">${o.bmeas ? `Mesurée : à ${fmt(o.bd, 2)} m du coin ${lab(o.bref === "b" ? B.b : B.a)}.` : `À mesurer : à ≈ ${fmt(o.bd, 2)} m du coin ${lab(o.bref === "b" ? B.b : B.a)} (d'après l'autre côté).`}</span>
+      <button class="btn" data-act="op-bmeasure:${o.id}">Mesurer la position côté ${esc(R.name)}</button></div>`;
+    if (c) { const st = thickStatus(c), tt = Math.abs(fitThick(c)), prop = throughProposal(o);
+      h += `<div class="sec"><span class="label">Cloison · ${st} · ${fmt(tt * 100, 1)} cm</span>
+      ${(() => {
+        if (st !== "supposée") return `<p class="small">${st === "déduite" ? "Calculée à partir de tes mesures." : "Saisie à la main."}</p>`;
+        const cb = crossedBy(o);
+        if (cb && cb.doors.length > 1) return `<p class="small">La mesure à travers passe aussi par ${cb.doors.filter(x => x !== o.id).join(", ")} : elle donne la somme des cloisons. Pour les séparer, mesure au mètre ruban l'épaisseur de l'embrasure de ${o.id} et tape-la ci-dessous.</p>`;
+        if (prop) return `<p class="small">Épaisseur par défaut. Une mesure à travers la porte la fixe${prop.single === false ? ` (la visée traverse aussi ${prop.doors.filter(x => x !== o.id).join(", ")} : elle donnera la somme des cloisons)` : ""}.</p><button class="btn primary" data-act="through-op:${o.id}">Mesurer à travers la porte</button>`;
+        return `<p class="small">Pas de visée possible à travers cette porte (pas de mur plein en face, des deux côtés). Mesure au mètre ruban l'épaisseur de l'embrasure et tape-la ci-dessous.</p>`;
+      })()}
+      <div class="row"><span class="small">Épaisseur :</span>${[0.07, 0.1, 0.15, 0.2].map(v => `<button class="mini ${c.known && Math.abs(c.t - v) < 1e-6 ? "on" : ""}" data-act="thick2:${o.id}:${v}">${Math.round(v * 100)} cm</button>`).join("")}</div>
+      <div class="row nowrap"><input class="field" id="thkIn" inputmode="decimal" placeholder="autre, en cm (ex. 12,5)" style="flex:1" aria-label="Épaisseur en centimètres"><button class="btn" data-act="thick2:${o.id}:field">OK</button>${c.known ? `<button class="btn" data-act="thick2:${o.id}:auto">Effacer</button>` : ""}</div></div>`; }
+  }
   if (o.pass) h += `<div class="sec"><span class="label">Épaisseur du mur</span><div class="row"><button class="mini ${!o.pass.known ? "on" : ""}" data-act="thick:auto" style="font-family:var(--f-ui)">Calculée</button>
       ${[[0.07, "7"], [0.1, "10"], [0.2, "20"]].map(([v, l]) => `<button class="mini ${o.pass.known && Math.abs(o.pass.t - v) < 1e-6 ? "on" : ""}" data-act="thick:${v}">${l} cm</button>`).join("")}</div>
       <p class="small">${o.pass.fixed ? `Mesurée à travers la porte : ≈ ${fmt(Math.abs(linkThick(o)) * 100, 1)} cm.` : `« Calculée » : sans mesure à travers, l'app suppose ${Math.round(D.thick * 100)} cm.`}</p></div>`;
@@ -2648,6 +2879,7 @@ function renderSheet() {
   else if (ui.height && room(ui.height)) h = heightHTML();
   else if (ui.cote) h = coteHTML();
   else if (ui.p2p) h = p2pHTML();
+  else if (ui.bpos && opening(ui.bpos.op)) h = bposHTML();
   else if (ui.draft) h = openingHTML();
   else if (ui.sel && ui.sel.type === "meas" && meas(ui.sel.id)) h = wallFiche(meas(ui.sel.id));
   else if (ui.sel && ui.sel.type === "op" && opening(ui.sel.id)) h = opFiche(opening(ui.sel.id));
@@ -2673,7 +2905,7 @@ let lastSheetKey = "", sheetMin = false;
 function sheetKey() {
   const r = curRoom();
   if (ui.menu) return "menu" + ui.menu;
-  return ui.view === "maison" ? "maison" + (ui.sel ? ui.sel.id : "") : ui.pending ? "pending" : ui.control ? "control" : ui.height ? "height" : ui.cote ? "cote" : ui.p2p ? "p2p" + !!ui.p2p.b
+  return ui.view === "maison" ? "maison" + (ui.sel ? ui.sel.id : "") : ui.pending ? "pending" : ui.control ? "control" : ui.height ? "height" : ui.cote ? "cote" : ui.p2p ? "p2p" + !!ui.p2p.b : ui.bpos ? "bpos"
     : ui.draft ? "draft" : ui.sel ? ui.sel.type + ui.sel.id : r ? r.id + r.status + D.nav.trace : "welcome";
 }
 function renderHeader() {
@@ -2782,7 +3014,18 @@ function act(name, ...args) {
     case "plan-yes": { const p = ui.pending; if (!p || p.kind !== "plan") return; ui.pending = null; ui.wall = p.m; ui.planOk = true; onMeasure(p.v); ui.planOk = false; return; }
     case "plan-no": ui.pending = null; refresh(); return toast("Bip oublié");
     case "corner": return restoreCorner(meas(arg));
-    case "op-into": { const o = opening(arg); if (!o) return; pushUndo(); if (arg2) o.into = arg2; else delete o.into; SOL = null; refresh(); return toast(arg2 ? `${o.id} donne sur ${room(arg2).name} : passage ouvert dans son mur` : `${o.id} détachée`); }
+    case "thick2": {
+      const c = D.cons.find(x => x.kind === "thick" && x.op === arg && x.walls.length > 1); if (!c) return;
+      let v = +arg2;
+      if (arg2 === "field") { const x = parseFloat(String(($("#thkIn") || {}).value || "").replace(",", ".")); if (!(x > 1 && x < 60)) return toast("Épaisseur en centimètres, par ex. 12,5"); v = x / 100; }
+      pushUndo(); if (arg2 === "auto") { c.known = false; c.t = D.thick; } else { c.known = true; c.t = r3(v); }
+      refresh(); return toast(arg2 === "auto" ? "Épaisseur : à nouveau supposée" : `Cloison de ${fmt(v * 100, 1)} cm`);
+    }
+    case "through-op": { const o = opening(arg), p = o && throughProposal(o); if (!p) return toast("Pas de visée possible à travers cette porte"); ui.view = "releve"; resetUi(); ui.cote = p; refresh(); fit(); return toast("Mesure à travers : suis la consigne du panneau"); }
+    case "op-bmeasure": { const o = opening(arg); if (!o || !o.bw) return; ui.bpos = { op: o.id, ref: o.bref || "a" }; ui.sel = null; D.cur = o.into; return refresh(); }
+    case "bpos-ref": if (ui.bpos) ui.bpos.ref = arg; return refresh();
+    case "bpos-cancel": ui.bpos = null; return refresh();
+    case "op-into": { const o = opening(arg); if (!o) return; pushUndo(); linkInto(o, arg2 ? room(arg2) : null); SOL = null; refresh(); return toast(arg2 ? `${o.id} donne sur ${room(arg2).name} : passage ouvert dans son mur` : `${o.id} détachée`); }
     case "delpt": if (ui.armDel !== arg) { ui.armDel = arg; return renderSheet(); } return deletePoint(arg);
     case "op-measure": { const o = opening(arg); if (!o) return; startDraft(o.type, o.meas, o.swing === "none"); Object.assign(ui.draft, { editOf: o.id, ref: o.ref, swing: o.swing, hinge: o.hinge }); return refresh(); }
     case "menu": { const was = ui.menu; ui.menu = was ? null : "main"; ui.armDel = null; sheetMin = false; return refresh(); }
@@ -3084,6 +3327,7 @@ requestAnimationFrame(fit);
 
 /* ---------- API de test (aucun effet visuel) ---------- */
 globalThis.T = {
+  partitions() { return D.cons.filter(c => c.kind === "thick").map(c => { SOL = null; const st = thickStatus(c); return { id: c.id, op: c.op, status: st, t: Math.abs(fitThick(c)) }; }); },
   reset() { D = blank(); undoStack = []; lastBip = null; ui.view = "releve"; resetUi(); refresh(); return true; },
   load(obj) { lastToast = ""; return openData(typeof obj === "string" ? JSON.parse(obj) : JSON.parse(JSON.stringify(obj)), false); },
   bip(m) { lastToast = ""; onMeasure(+m); return lastToast; },
