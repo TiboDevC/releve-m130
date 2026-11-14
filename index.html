@@ -341,7 +341,7 @@ let D = blank(), SOL = null, CHK = null;
 const ui = { view: "releve" };
 function resetUi() {
   Object.assign(ui, { sel: null, wall: null, control: null, height: null, draft: null, pending: null, cote: null, manual: false, toWall: false,
-    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null });
+    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null, thru: null });
 }
 resetUi();
 let view = { cx: 1.5, cy: 1, s: 60 }, undoStack = [], lastBip = null, conn = navigator.bluetooth ? "off" : "na", lastToast = "";
@@ -453,8 +453,9 @@ function lastWallDir(r) { const es = roomEdges(r); return !r.loop && es.length ?
 function firstWallDir(r) { const es = roomEdges(r); return es.length ? edgeDir(es[0]) : null; }
 
 /* ---------- ajustement global ---------- */
-function equations(over) {
-  const eqs = [];
+function equations(over, opt) {
+  // opt : { drop: Set d'ids de contraintes ignorées, relax: Set de portes dont la position le long du mur est libérée } (diagnostic)
+  const eqs = [], drop = opt && opt.drop, relax = opt && opt.relax;
   for (const m of D.meas) {
     const [c, s] = dirv(m.ang);
     if (!m.obs.length) {
@@ -476,10 +477,11 @@ function equations(over) {
     });
   }
   for (const c of D.cons) {
+    if (drop && drop.has(c.id)) continue;
     if (c.kind === "link" || c.kind === "door") {
-      const [ux, uy] = c.u, ox = -uy, oy = ux, dx = ux * c.s + ox * c.o * c.t, dy = uy * c.s + oy * c.o * c.t;
-      eqs.push({ a: c.a, b: c.b, ax: 0, val: dx, v: c.sa ** 2 * ux * ux + c.sp ** 2 * ox * ox });
-      eqs.push({ a: c.a, b: c.b, ax: 1, val: dy, v: c.sa ** 2 * uy * uy + c.sp ** 2 * oy * oy });
+      const [ux, uy] = c.u, ox = -uy, oy = ux, dx = ux * c.s + ox * c.o * c.t, dy = uy * c.s + oy * c.o * c.t, sa = relax && relax.has(c.id) ? 2 : c.sa;
+      eqs.push({ a: c.a, b: c.b, ax: 0, val: dx, v: sa ** 2 * ux * ux + c.sp ** 2 * ox * ox });
+      eqs.push({ a: c.a, b: c.b, ax: 1, val: dy, v: sa ** 2 * uy * uy + c.sp ** 2 * oy * oy });
     } else if (c.kind === "equal") {
       // deux murs parallèles de même longueur : s1·(B1 − A1) − s2·(B2 − A2) = 0 sur leur axe
       const m1 = meas(c.walls[0]), m2 = meas(c.walls[1]); if (!m1 || !m2) continue;
@@ -564,9 +566,7 @@ function pairFixed(r1, r2) {
   if (D.openings.some(o => { if (!o.pass || !(o.pass.known || o.pass.fixed)) return false; const [h, j] = doorRooms(o); return h && j && ekey(h.id, j.id) === k; })) return true;
   return D.cons.some(c => c.kind === "thick" && c.known && c.walls && (() => { const a = roomOfWall(meas(c.walls[0])), b = roomOfWall(meas(c.walls[1])); return a && b && ekey(a.id, b.id) === k; })());
 }
-function autoPartitions(P) {
-  // deux murs de pièces différentes, parallèles, face à face et à moins de 30 cm : c'est une cloison.
-  // On suppose son épaisseur (D.thick) avec une marge large ; les mesures de bout en bout la corrigent.
+function roomFaces(P) {
   const ws = [];
   for (const r of D.rooms) {
     if (!r.loop || r.status === "sketch") continue;
@@ -577,19 +577,33 @@ function autoPartitions(P) {
       if (!m || norm(m.ang) % 90) return;
       const A = P.get(a), B = P.get(b), L = Math.hypot(B[0] - A[0], B[1] - A[1]); if (L < 0.2) return;
       const u = [(B[0] - A[0]) / L, (B[1] - A[1]) / L], nin = cw ? [-u[1], u[0]] : [u[1], -u[0]], ax = norm(m.ang) % 180 ? 0 : 1;
-      ws.push({ r: r.id, m: m.id, a, ax, pos: A[ax], lo: Math.min(A[1 - ax], B[1 - ax]), hi: Math.max(A[1 - ax], B[1 - ax]), out: -nin[ax] });
+      ws.push({ r: r.id, m: m.id, a, ax, pos: A[ax], lo: Math.min(A[1 - ax], B[1 - ax]), hi: Math.max(A[1 - ax], B[1 - ax]), out: Math.sign(-nin[ax]) });
     });
   }
+  return ws;
+}
+function facingPairs(P) {
+  // deux murs de pièces différentes, parallèles, dos à dos : g = écart entre eux (négatif = les pièces se chevauchent)
+  const ws = roomFaces(P), out = [];
+  for (let i = 0; i < ws.length; i++) for (let j = i + 1; j < ws.length; j++) {
+    const p = ws[i], q = ws[j];
+    if (p.r === q.r || p.ax !== q.ax || p.out !== -q.out || Math.min(p.hi, q.hi) - Math.max(p.lo, q.lo) < 0.2) continue;
+    const g = (q.pos - p.pos) * p.out;
+    if (g > 0.3 || g < -0.15) continue;
+    out.push({ p, q, g });
+  }
+  return out;
+}
+function autoPartitions(P) {
+  // deux murs de pièces différentes, dos à dos et à moins de 30 cm : c'est une cloison.
+  // On suppose son épaisseur (D.thick) avec une marge large ; les mesures de bout en bout la corrigent.
   const explicit = new Set(D.cons.filter(c => c.walls && c.kind !== "equal").map(c => c.walls.slice().sort().join("|")));
   const fixedPairs = new Map(), eqs = [];
-  for (let i = 0; i < ws.length; i++) for (let j = i + 1; j < ws.length; j++) {
-    const p = ws[i], q = ws[j], d = q.pos - p.pos;
-    if (p.r === q.r || p.ax !== q.ax || Math.abs(d) > 0.3 || Math.min(p.hi, q.hi) - Math.max(p.lo, q.lo) < 0.2) continue;
-    if (p.out * Math.sign(d) <= 0 || q.out * Math.sign(-d) <= 0) continue;          // chacun regarde vers l'autre, côté extérieur
+  for (const { p, q } of facingPairs(P)) {
     if (explicit.has([p.m, q.m].sort().join("|"))) continue;
     const k = ekey(p.r, q.r); if (!fixedPairs.has(k)) fixedPairs.set(k, pairFixed(p.r, q.r));
     if (fixedPairs.get(k)) continue;
-    eqs.push({ a: p.a, b: q.a, ax: p.ax, val: Math.sign(d || 1) * D.thick, v: 0.03 ** 2, auto: [p.m, q.m] });
+    eqs.push({ a: p.a, b: q.a, ax: p.ax, val: p.out * D.thick, v: 0.03 ** 2, auto: [p.m, q.m] });
   }
   return eqs;
 }
@@ -609,7 +623,7 @@ function solve() {
     const med = m.obs.slice().sort((x, y) => x - y)[Math.floor(m.obs.length / 2)];
     const used = m.obs.length >= 3 ? m.obs.filter(L => Math.abs(L - med) <= 0.01) : m.obs;
     const resid = m.obs.map(L => kept - L), spread = Math.max(...used) - Math.min(...used);
-    const big = Math.max(...used.map(L => Math.abs(kept - L))), flag = big > Math.max(FLAG, 3 * SIG(kept)) || spread > 0.01;
+    const big = Math.max(...used.map(L => Math.abs(kept - L))), flag = big > Math.max(FLAG, 3 * SIG(kept)) || spread > FLAG + 1e-9;
     const score = big / SIG(kept);
     res.set(m.id, { kept, resid, spread, flag, score });
     if (flag && (!worst || score > worst.score)) worst = { id: m.id, score };
@@ -795,7 +809,11 @@ function drawHouse(g, P, o) {
     if (o.screen) el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: "transparent", "stroke-width": 24, "data-meas": m.id }, g);
     if (o.labels) {
       const out = [-wg.nin[0], -wg.nin[1]], off = m.kind === "cote" ? -o.fs * .9 : o.fs * 1.2;
-      const mx = (A[0] + B[0]) / 2 + out[0] * off, my = (A[1] + B[1]) / 2 + out[1] * off;
+      let MA = A, MB = B;
+      if (m.kind === "wall") { const pcs = wallPieces(wg, o.screen); if (pcs.length > 1 || (pcs[0] && Math.hypot(pcs[0][1][0] - pcs[0][0][0], pcs[0][1][1] - pcs[0][0][1]) < wg.L - 0.01)) {
+        const best = pcs.reduce((x, y) => Math.hypot(y[1][0] - y[0][0], y[1][1] - y[0][1]) > Math.hypot(x[1][0] - x[0][0], x[1][1] - x[0][1]) ? y : x);
+        const pa = P(...best[0]), pb = P(...best[1]); if (Math.hypot(pb[0] - pa[0], pb[1] - pa[1]) > o.fs * 4) { MA = pa; MB = pb; } } }
+      const mx = (MA[0] + MB[0]) / 2 + out[0] * off, my = (MA[1] + MB[1]) / 2 + out[1] * off;
       let ang = Math.atan2(B[1] - A[1], B[0] - A[0]) * 180 / Math.PI; if (ang > 90.5 || ang < -89.5) ang += 180;
       const pre = o.screen && !m.obs.length ? (sameAs(m) || (wr && wr.status === "closed" && determined(m)) ? "=" : "≈") : "", str = pre + fmt(rs ? rs.kept : wg.L, sk ? 2 : o.digits) + (flag ? " !" : "");
       const len = Math.hypot(B[0] - A[0], B[1] - A[1]), tw = str.length * o.fs * .6, vertical = Math.abs(B[0] - A[0]) < Math.abs(B[1] - A[1]);
@@ -1108,7 +1126,7 @@ function handleTap(t) {
     if (ui.equalPick) { const m1 = meas(ui.equalPick); ui.equalPick = null; return equalWalls(m1, m); }
     if (ui.addPick) {
       if (m.kind !== "wall" || roomOfWall(m) !== r) return toast("Choisis un mur de cette pièce");
-      const k = ui.addPick; ui.addPick = null; startDraft(k, m.id, false); return refresh();
+      const k = ui.addPick; ui.addPick = null; if (k === "through") { ui.sel = { type: "meas", id: m.id }; ui.thru = m.id; return refresh(); } startDraft(k, m.id, false); return refresh();
     }
     if (ui.draft) {
       if (m.kind !== "wall") return toast("Une ouverture se place sur un mur, pas sur une cote");
@@ -1292,7 +1310,16 @@ function closeShape() {
   const c = r.contour, n = c.length, last = c[n - 1], first = c[0], L = Pof(last), F = Pof(first), dx = F[0] - L[0], dy = F[1] - L[1];
   pushUndo();
   const prev = lastWallDir(r), lm = edgeMeas(c[n - 2], last);
-  if (Math.abs(dx) < 0.02 || Math.abs(dy) < 0.02) {
+  // pièce commencée au montant d'une porte : le dernier mur arrive dans l'alignement de la porte (un bout de mur déduit
+  // à côté du montant, que l'ajustement règle), au lieu de faire du montant un coin
+  const J2 = n > 1 && isJamb(first) && isJamb(c[1]) && !edgeMeas(first, c[1]) ? Pof(c[1]) : null;
+  const dd = J2 ? axisDir(J2[0] - F[0], J2[1] - F[1]) : null;
+  if (dd != null && (Math.abs(dx) < 0.02 || Math.abs(dy) < 0.02) && axisDir(dx, dy) % 180 !== dd % 180) {
+    const u = dirv(dd), C = [F[0] - u[0] * 0.1, F[1] - u[1] * 0.1], q = addPoint(C[0], C[1], r.id);
+    addWall(last, q.id, axisDir(dx, dy), Math.hypot(dx, dy));
+    addWall(q.id, first, dd, 0.1, { ded: true });
+    c.push(q.id);
+  } else if (Math.abs(dx) < 0.02 || Math.abs(dy) < 0.02) {
     const dir = axisDir(dx, dy), len = Math.hypot(dx, dy);
     if (prev === dir && lm && !lm.obs.length && !isJamb(last) && n > 3) {
       // le dernier mur continue jusqu'au point de départ : pas de coin inutile
@@ -1306,6 +1333,7 @@ function closeShape() {
     let useC2 = prev != null && prev % 180 === 0;
     const arr = C => axisDir(F[0] - C[0], F[1] - C[1]);
     if (fd != null && norm(arr(useC2 ? C2 : C1) + 180) === fd) useC2 = !useC2;
+    if (dd != null) { if (arr(C1) === dd) useC2 = false; else if (arr(C2) === dd) useC2 = true; }
     const C = useC2 ? C2 : C1, p = addPoint(C[0], C[1], r.id);
     addWall(last, p.id, axisDir(C[0] - L[0], C[1] - L[1]), Math.hypot(C[0] - L[0], C[1] - L[1]));
     addWall(p.id, first, arr(C), Math.hypot(F[0] - C[0], F[1] - C[1]));
@@ -1597,8 +1625,51 @@ function assumedPairs() {
   for (const c of D.cons) if (c.kind === "thick" && !c.known && c.walls) { const p = get(roomOfWall(meas(c.walls[0])), roomOfWall(meas(c.walls[1]))); if (p) p.assumed = true; }
   return [...map.values()].filter(p => p.assumed && !pairFixed(p.r1.id, p.r2.id));
 }
+function houseRay(S, d, skip) {
+  // rayon du laser à travers la maison : traverse les portes et passages, s'arrête au premier mur plein (ou fenêtre)
+  const hits = [];
+  for (const w of D.meas) {
+    if (w.kind !== "wall" || w.id === skip) continue;
+    const A = Pof(w.a), B = Pof(w.b); if (!A || !B) continue;
+    const e = [B[0] - A[0], B[1] - A[1]], den = d[0] * e[1] - d[1] * e[0]; if (Math.abs(den) < 1e-9) continue;
+    const q = [A[0] - S[0], A[1] - S[1]], t = (q[0] * e[1] - q[1] * e[0]) / den, sa = (q[0] * d[1] - q[1] * d[0]) / den;
+    if (t <= 0.02 || sa < 0 || sa > 1) continue;
+    const L = Math.hypot(e[0], e[1]), at = sa * L;
+    const door = D.openings.find(o => o.meas === w.id && o.type === "door" && (([a, b]) => at > Math.min(a, b) + 0.04 && at < Math.max(a, b) - 0.04)(jambs(o, L)));
+    hits.push({ w, t, door, ok: !(norm(w.ang) % 90) });
+  }
+  hits.sort((a, b) => a.t - b.t);
+  const doors = [];
+  for (const h of hits) { if (h.door) { if (!doors.includes(h.door.id)) doors.push(h.door.id); continue; } return { w: h.w, t: h.t, doors, ok: h.ok }; }
+  return null;
+}
+function throughOptions(m) {
+  // où poser le M130 contre ce mur pour une mesure qui traverse : une option par mur d'arrivée différent
+  const wg = wallGeom(m); if (!wg || norm(m.ang) % 90 || wg.L < 0.25) return [];
+  const runs = [];
+  for (let t = 0.08; t <= wg.L - 0.08 + 1e-9; t += 0.04) {
+    const S = [wg.A[0] + wg.u[0] * t, wg.A[1] + wg.u[1] * t], h = houseRay(S, wg.nin, m.id);
+    const k = h && h.ok ? h.w.id + "|" + h.doors.join(",") : null, last = runs[runs.length - 1];
+    if (last && last.k === k) last.ts.push(t); else runs.push({ k, h, ts: [t] });
+  }
+  const opts = runs.filter(r => r.k && r.ts.length >= 3).map(r => {
+    const t = r.ts[Math.floor(r.ts.length / 2)], S = [wg.A[0] + wg.u[0] * t, wg.A[1] + wg.u[1] * t], h = houseRay(S, wg.nin, m.id);
+    return { sw: m.id, t, dir: angOf(wg.nin), tw: h.w.id, len: h.t, doors: h.doors, door: h.doors.length === 1 ? h.doors[0] : null, rA: (roomOfWall(m) || {}).id, rB: (roomOfWall(h.w) || {}).id, free: true, width: r.ts.length * 0.04 };
+  });
+  return opts.sort((a, b) => b.doors.length - a.doors.length || b.len - a.len).slice(0, 5);
+}
+function throughOptHTML(m) {
+  const os = throughOptions(m);
+  if (!os.length) return `<p class="small">Aucune visée possible depuis ce mur.</p>`;
+  return `<p class="small">Choisis jusqu'où vise le laser. Il traverse les portes ouvertes.</p>` + os.map((o, i) => { const tw = meas(o.tw), rB = room(o.rB);
+    return `<button class="btn" data-act="thru-go:${m.id}:${i}" style="justify-content:space-between;text-align:left"><span>→ ${mName(tw)}${rB ? ` · ${esc(rB.name)}` : ""}${o.doors.length ? ` · par ${o.doors.join(", ")}` : ""}</span><b style="font-family:var(--f-num)">≈ ${fmt(o.len, 2)}</b></button>`; }).join("");
+}
 function coteText(p) {
   const sw = meas(p.sw), tw = p.tw && meas(p.tw), rA = room(p.rA) || roomOfWall(sw), rB = tw && (room(p.rB) || roomOfWall(tw));
+  if (p.free) {
+    const L = wallLen(sw), near = p.t <= L / 2, d = near ? p.t : L - p.t;
+    return `Dos du M130 contre le mur ${mName(sw)}${rA ? ` (${esc(rA.name)})` : ""}, à ${fmt(d, 2)} m du coin ${lab(near ? sw.a : sw.b)}, vise ${dirName(p.dir)} ${p.doors.length ? `en passant par ${p.doors.join(" puis ")}` : "à travers la pièce"} jusqu'au mur ${tw ? `${mName(tw)}${rB ? ` (${esc(rB.name)})` : ""}` : "d'en face"} · ≈ ${fmt(p.len, 2)} m.${p.width < 0.3 ? " Le passage est étroit : vise bien droit." : ""}`;
+  }
   return `Dos du M130 contre le mur ${mName(sw)}${rA ? ` (${esc(rA.name)})` : ""}${p.door ? `, en face de ${p.door}` : ""}, vise ${dirName(p.dir)} à travers ${p.door ? "la porte" : "la pièce"} jusqu'au mur ${tw ? `${mName(tw)}${rB ? ` (${esc(rB.name)})` : ""}` : "d'en face"}${p.len ? ` · ≈ ${fmt(p.len, 2)} m` : ""}.`;
 }
 function openThrough(mid) {
@@ -1639,6 +1710,56 @@ function coteBip(v) {
   return `${fmt(v)} m à travers${tw ? ` jusqu'au mur ${mName(tw)}` : ""}${o && o.pass && o.pass.fixed ? ` · épaisseur ≈ ${Math.round(Math.abs(linkThick(o)) * 1000) / 10} cm` : ""}`;
 }
 
+/* ---------- diagnostic : quelle contrainte de structure est en cause ---------- */
+let SUSP = { sol: null, map: new Map() };
+function structSuspects(key, bad) {
+  // on retire (ou on assouplit) chaque contrainte posée à la main, une à la fois : celles qui font disparaître le problème sont suspectes
+  const base = solve();
+  if (SUSP.sol !== base) SUSP = { sol: base, map: new Map() };
+  if (SUSP.map.has(key)) return SUSP.map.get(key);
+  const out = [];
+  for (const c of D.cons) {
+    let opt = null;
+    if (c.kind === "align" || c.kind === "equal") opt = { drop: new Set([c.id]) };
+    else if (c.kind === "link" && c.op && opening(c.op)) opt = { relax: new Set([c.id]) };
+    if (!opt) continue;
+    const pos = lsq(equations(null, opt).concat(base.auto), base.idx), P = new Map(D.pts.map((p, i) => [p.id, pos[i]]));
+    const v = bad(P); if (v != null) out.push({ c, v });
+  }
+  out.sort((a, b) => a.v - b.v);
+  SUSP.map.set(key, out.slice(0, 3));
+  return SUSP.map.get(key);
+}
+function wallBad(m) {
+  // écart restant de ce mur avec ses mesures dans une variante du plan (null si le mur redevient cohérent)
+  const [c, s] = dirv(m.ang), med = m.obs.slice().sort((x, y) => x - y)[Math.floor(m.obs.length / 2)];
+  const used = m.obs.length >= 3 ? m.obs.filter(L => Math.abs(L - med) <= 0.01) : m.obs;
+  return P => { const A = P.get(m.a), B = P.get(m.b); if (!A || !B) return null; const k = (B[0] - A[0]) * c + (B[1] - A[1]) * s, big = Math.max(...used.map(L => Math.abs(k - L))); return big <= FLAG ? big : null; };
+}
+function pairBad(f) {
+  return P => { const A = P.get(f.p.a), B = P.get(f.q.a); if (!A || !B) return null; const g = (B[f.p.ax] - A[f.p.ax]) * f.p.out; return g >= 0.05 ? Math.abs(g - D.thick) : null; };
+}
+function suspectText(c) {
+  if (c.kind === "align" || c.kind === "equal") {
+    const [w1, w2] = (c.walls || []).map(meas);
+    const nm = w1 && w2 ? `${mName(w1)} / ${mName(w2)}` : "";
+    return { t: `${c.kind === "align" ? "l'alignement" : "« même longueur »"} ${nm}`, act: [`Retirer ${c.kind === "align" ? "l'alignement" : "« même longueur »"} ${nm}`, "unalign:" + c.id] };
+  }
+  const o = opening(c.op), m = o && meas(o.meas), ref = m && (o.ref === "b" ? m.b : m.a);
+  return { t: `la position de ${o.id} (${o.pos ? `à ${fmt(o.pos, 2)} m du coin ${lab(ref)}` : `collée au coin ${lab(ref)}`})`, act: [`Voir ${o.id}`, "goop:" + o.id] };
+}
+function suspectsHTML(list) {
+  if (!list.length) return "";
+  const ts = list.map(x => suspectText(x.c));
+  return `<span class="hint">Si tes mesures sont bonnes, en cause probable : ${ts.map(t => `<b>${t.t}</b>`).join(", ou ")}.</span>
+    <div class="row">${ts.map(t => `<button class="btn" data-act="${t.act[1]}">${t.act[0]}</button>`).join("")}</div>`;
+}
+function badPartitions(sol) {
+  // cloisons écrasées (< 5 cm) ou pièces qui se chevauchent : une mesure ou une contrainte ne colle pas à la réalité
+  const known = new Set(D.cons.filter(c => c.kind === "thick" && c.known && c.walls).map(c => c.walls.slice().sort().join("|")));
+  return facingPairs(sol.P).filter(f => f.g < 0.05 && !known.has([f.p.m, f.q.m].sort().join("|")));
+}
+
 /* ---------- G · vérifications ---------- */
 function alignCandidates() {
   const ws = [];
@@ -1669,9 +1790,22 @@ function checkList() {
   // 1. mesures qui s'écartent
   D.meas.filter(m => sol.res.get(m.id) && sol.res.get(m.id).flag).sort((a, b) => sol.res.get(b.id).score - sol.res.get(a.id).score).forEach(m => {
     const rs = sol.res.get(m.id), r = roomOfWall(m);
-    const why = rs.spread > 0.01 ? `les mesures de ${mName(m)} ne concordent pas (${m.obs.map(x => fmt(x)).join(" / ")})` : `${mName(m)} s'écarte de ${sgn(rs.resid[rs.resid.length - 1])} cm de l'ensemble`;
-    list.push({ type: "control", key: "c:" + m.id, text: `${r ? esc(r.name) + " : " : ""}${why}. Une mesure de contrôle permet de trancher.`, acts: [[`Mesure de contrôle ${mName(m)}`, "gocontrol:" + m.id]] });
+    const ob = m.obs.map(x => fmt(x)).join(" / "), d = sgn(rs.kept - m.obs[m.obs.length - 1]);
+    const why = rs.spread > FLAG + 1e-9 ? `les mesures de ${mName(m)} ne concordent pas (${ob}). Une mesure de contrôle permet de trancher`
+      : m.obs.length > 1 ? `tes mesures de ${mName(m)} concordent (${ob}), mais le reste du plan l'oblige à ${fmt(rs.kept)} m (${d} cm) : c'est ailleurs que ça coince`
+      : `${mName(m)} s'écarte de ${d} cm de l'ensemble. Une mesure de contrôle permet de trancher`;
+    list.push({ type: "control", key: "c:" + m.id, m: m.id, text: `${r ? esc(r.name) + " : " : ""}${why}.`, acts: [[`Mesure de contrôle ${mName(m)}`, "gocontrol:" + m.id]] });
   });
+  // 1 bis. cloisons écrasées ou pièces qui se chevauchent
+  for (const f of badPartitions(sol)) {
+    const w1 = meas(f.p.m), w2 = meas(f.q.m), r1 = room(f.p.r), r2 = room(f.q.r);
+    const what = f.g < -0.002 ? `${esc(r1.name)} et ${esc(r2.name)} se chevauchent de ${cm(-f.g)}` : `il ne reste que ${cm(Math.max(0, f.g))} de cloison entre ${esc(r1.name)} et ${esc(r2.name)}`;
+    const door = D.openings.find(o => { if (!o.pass) return false; const [h, j] = doorRooms(o); return h && j && ekey(h.id, j.id) === ekey(r1.id, r2.id); });
+    const prop = door && throughProposal(door);
+    list.push({ type: "control", key: "g:" + [f.p.m, f.q.m].sort().join("|"), part: f, prop,
+      text: `${what} (murs ${mName(w1)} et ${mName(w2)}), au lieu d'une cloison d'environ ${Math.round(D.thick * 100)} cm. Une mesure ou une contrainte ne correspond pas à la réalité.`,
+      acts: prop ? [["Mesurer à travers", "through-part:" + [f.p.m, f.q.m].sort().join("|")]] : [[`Mesure de contrôle ${mName(w1)}`, "gocontrol:" + w1.id]] });
+  }
   // 2. alignements probables (même façade)
   for (const a of alignCandidates()) list.push({ type: "align", key: a.key,
     text: `Même façade ? ${mName(a.p.m)} (${esc(a.p.r.name)}) et ${mName(a.q.m)} (${esc(a.q.r.name)}) sont presque sur la même ligne (écart ${cm(a.d)}).`,
@@ -1778,17 +1912,17 @@ function measureHTML(r) {
   return h;
 }
 function closedHTML(r) {
-  const info = `${fmt(roomArea(r), 2)} m² · périmètre ${fmt(roomPerim(r), 2)} m · hauteur ${r.height ? fmt(r.height, 2) + " m" : "—"} · écart ${cm(roomGap(r))}`;
+  const info = `${fmt(roomArea(r), 2)} m² · périmètre ${fmt(roomPerim(r), 2)} m · hauteur ${r.height ? fmt(r.height, 2) + " m" : `— <button class="linkbtn" data-act="height:${r.id}" style="min-height:0;font-size:inherit;padding:8px 2px;margin:-8px 0">mesurer</button>`} · écart ${cm(roomGap(r))}`;
   if (ui.addPick) {
-    const k = ui.addPick, nm = k === "window" ? "la fenêtre" : "la porte";
-    return `<div class="fhead"><div class="cardtxt"><span class="eyebrow">${esc(r.name)}</span><span class="big">Sur quel mur, ${nm} ?</span></div></div>
-      <p class="hint">Touche le mur sur le plan, ou choisis-le ici.</p>
+    const k = ui.addPick, q = k === "window" ? "Sur quel mur, la fenêtre ?" : k === "through" ? "Depuis quel mur viser ?" : "Sur quel mur, la porte ?";
+    return `<div class="fhead"><div class="cardtxt"><span class="eyebrow">${esc(r.name)}</span><span class="big">${q}</span></div></div>
+      <p class="hint">${k === "through" ? "Le dos du M130 contre ce mur, le laser part vers l'intérieur de la pièce et traverse les portes ouvertes. " : ""}Touche le mur sur le plan, ou choisis-le ici.</p>
       <div class="pills">${roomWalls(r).map(w => `<button class="pill" data-act="add-on:${w.id}">${mName(w)} · ${fmt(wallLen(w), 2)}</button>`).join("")}</div>
       <div class="bar"><button class="btn grow" data-act="add-cancel">Annuler</button></div>`;
   }
   return segHTML(r) + `<div class="cardtxt"><span class="big">${esc(r.name)}</span><span class="hint">${info}</span></div>
-    <div class="row nowrap"><button class="btn grow" data-act="add-pick:window">+ Fenêtre</button><button class="btn grow" data-act="add-pick:door">+ Porte</button><button class="btn grow" data-act="height:${r.id}">Hauteur</button></div>
-    <p class="small">Ou touche un mur du plan : porte, passage, fenêtre, mesure de contrôle.</p>
+    <div class="row nowrap"><button class="btn grow" data-act="add-pick:window">+ Fenêtre</button><button class="btn grow" data-act="add-pick:door">+ Porte</button><button class="btn grow" data-act="add-pick:through">À travers…</button></div>
+    <p class="small">Ou touche un mur du plan : porte, passage, fenêtre, mesure de contrôle, mesure à travers.</p>
     <div class="bar">${undoBtn()}<button class="btn primary" data-act="newRoom">Commencer une pièce</button></div>`;
 }
 function sidesOf(m, target) {
@@ -1865,10 +1999,45 @@ function alignWalls(m1, m2) {
 function explainFlag(m) {
   // pourquoi ce mur est signalé : désaccord entre ses propres mesures, ou avec les murs parallèles de la pièce
   const rs = solve().res.get(m.id), r = roomOfWall(m);
-  if (rs.spread > 0.01) return `Ses mesures ne concordent pas entre elles (${m.obs.map(x => fmt(x)).join(" / ")}). Retire celle qui est fausse, ou ajoute une mesure de contrôle.`;
+  if (rs.spread > FLAG + 1e-9) return `Ses mesures ne concordent pas entre elles (${m.obs.map(x => fmt(x)).join(" / ")}). Retire celle qui est fausse, ou ajoute une mesure de contrôle.`;
   const ax = norm(m.ang) % 180, par = r ? roomWalls(r).filter(w => w.id !== m.id && w.obs.length && norm(w.ang) % 180 === ax) : [];
   const lst = par.map(w => `${mName(w)} ${fmt(w.obs[w.obs.length - 1])}`).join(", ");
+  if (m.obs.length > 1) return `Tes ${m.obs.length} mesures concordent : c'est le reste du plan qui force ce mur à ${fmt(rs.kept)} m.`;
+  const jh = jambHint(m);
+  if (jh) { const jw = jh.w, jc = jh.jc; return `La pièce touche pile le montant ${lab(jc.J)} de ${jc.op} : la porte occupe tout le côté. S'il reste un bout de mur à côté de la porte, ajoute-le depuis la fiche du mur ${mName(jw)}.`; }
   return `Avec les autres murs ${ax ? "verticaux" : "horizontaux"} de la pièce${lst ? ` (${lst})` : ""}, la pièce ne se referme pas : il manque ou il y a ${cm(Math.abs(rs.resid[rs.resid.length - 1]))} de trop. L'un de ces murs est sans doute mal mesuré.`;
+}
+function jambCorner(m) {
+  // ce mur part (ou arrive) pile au montant d'une porte, à angle droit : la porte touche le coin. Souvent faux (il reste un bout de mur).
+  const r = m && m.kind === "wall" ? roomOfWall(m) : null; if (!r || !r.loop || norm(m.ang) % 90) return null;
+  for (const e of roomEdges(r)) {
+    if (e.m || !e.door) continue;
+    for (const [J, K] of [[e.a, e.b], [e.b, e.a]]) {
+      if (m.a !== J && m.b !== J) continue;
+      const A = Pof(J), B = Pof(K); if (!A || !B) continue;
+      const dd = axisDir(B[0] - A[0], B[1] - A[1]); if (dd % 180 === norm(m.ang) % 180) continue;
+      return { J, K, dd, op: e.door.op };
+    }
+  }
+  return null;
+}
+function jambHint(m) {
+  // un mur signalé, parallèle à une porte qui occupe tout un côté de la pièce : le bout de mur manquant explique souvent l'écart
+  const r = roomOfWall(m); if (!r) return null;
+  for (const w of roomWalls(r)) { const jc = jambCorner(w); if (jc && jc.dd % 180 === norm(m.ang) % 180) return { w, jc }; }
+  return null;
+}
+function jambPiece(m) {
+  const jc = jambCorner(m), r = roomOfWall(m); if (!jc || !r) return;
+  pushUndo();
+  const A = Pof(jc.J), u = dirv(jc.dd), q = addPoint(A[0] - u[0] * 0.1, A[1] - u[1] * 0.1, r.id);
+  const other = m.a === jc.J ? m.b : m.a;
+  if (m.a === jc.J) m.a = q.id; else m.b = q.id;
+  addWall(q.id, jc.J, jc.dd, 0.1, { ded: true });
+  const c = r.contour, i = c.indexOf(jc.J), k = c.indexOf(other), n = c.length;
+  if ((i + 1) % n === k) c.splice(i + 1, 0, q.id); else c.splice(i, 0, q.id);
+  ui.sel = null; refresh();
+  toast(`Bout de mur ajouté à côté de ${jc.op} : sa longueur vient des autres mesures`);
 }
 function delLabel(m) {
   const r = m.kind === "wall" ? roomOfWall(m) : null; if (!r) return "Confirmer la suppression";
@@ -1914,11 +2083,16 @@ function wallFiche(m) {
         ${ui.thickPick === m.id ? `<div class="row"><span class="small">Épaisseur connue :</span>${[0.07, 0.1, 0.15, 0.2].map(v => `<button class="mini" data-act="part-thick:${m.id}:${v}">${Math.round(v * 100)} cm</button>`).join("")}</div>` : ""}</div>`;
     }
   }
+  const jc = jambCorner(m);
+  if (jc) h += `<div class="sec"><span class="label">Montant de porte</span><span class="hint">Ce mur s'arrête pile au montant ${lab(jc.J)} de ${jc.op}, comme si la porte touchait le coin. S'il reste un bout de mur entre la porte et le coin :</span>
+    <button class="btn" data-act="jamb-piece:${m.id}">Ajouter le bout de mur à côté de ${jc.op}</button></div>`;
+  if (m.kind === "wall" && !(norm(m.ang) % 90)) h += `<div class="sec"><span class="label">Mesure à travers</span>${ui.thru === m.id ? throughOptHTML(m)
+    : `<button class="btn" data-act="thru:${m.id}">Viser depuis ce mur, à travers les portes…</button>`}</div>`;
   if (m.obs.length) {
     h += `<div class="sec"><span class="label">Mesures de ce mur</span><div class="chips" style="flex-wrap:wrap">${m.obs.map((v, k) =>
       `<button class="chip" data-act="obs-del:${m.id}:${k}" aria-label="Retirer la mesure ${fmt(v)}">${fmt(v)} m ×</button>`).join("")}</div>
       <p class="small">Une mesure fausse ? Touche-la pour la retirer${m.obs.length > 1 ? " : l'app ne gardera que les autres" : ""}.</p></div>`;
-    if (flag) h += `<p class="small" style="color:var(--warn-t,#ffb27a)">${explainFlag(m)}</p>`;
+    if (flag) h += `<p class="small" style="color:var(--warn-t,#ffb27a)">${explainFlag(m)}</p>${suspectsHTML(structSuspects("c:" + m.id, wallBad(m)))}`;
   }
   h += `${m.obs.length ? `<button class="btn" data-act="replace:${m.id}">Remplacer la mesure</button>` : ""}
     <div class="bar">${ui.armDel === m.id ? `<button class="btn danger grow" data-act="delmeas">${delLabel(m)}</button>`
@@ -1972,7 +2146,7 @@ function controlHTML() {
 function coteHTML() {
   const p = ui.cote;
   return `<div class="card"><div class="pict">${pictAim(norm(p.dir), "cote")}</div><div class="cardtxt">${waitLine()}<span class="big">Mesure à travers</span><span class="hint">${coteText(p)}</span></div></div>${manualRow()}
-    <p class="small">Le bip fixe l'épaisseur des cloisons traversées, au lieu de la supposer.</p>
+    <p class="small">${p.free && !p.doors.length ? "Le bip contrôle la largeur de la pièce." : "Le bip relie les pièces traversées et fixe l'épaisseur des cloisons, au lieu de la supposer."}</p>
     <div class="bar"><button class="btn grow" data-act="cote-cancel">Plus tard</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
 }
 function mergeHTML() {
@@ -2015,11 +2189,20 @@ function openingHTML() {
   h += `<div class="bar"><button class="btn" data-act="cancel-op">Annuler</button><button class="btn primary" data-act="validate" ${ok ? "" : "disabled"}>Valider</button></div>`;
   return h;
 }
+function checkSuspects(c) {
+  if (c.m) {
+    const m = meas(c.m); if (!m) return "";
+    const jh = jambHint(m);
+    return suspectsHTML(structSuspects(c.key, wallBad(m))) + (jh ? `<span class="hint">La porte ${jh.jc.op} occupe tout un côté de la pièce. S'il reste un bout de mur à côté :</span><div class="row"><button class="btn" data-act="jamb-piece:${jh.w.id}">Ajouter le bout de mur à côté de ${jh.jc.op}</button></div>` : "");
+  }
+  if (c.part) return suspectsHTML(structSuspects(c.key, pairBad(c.part)));
+  return "";
+}
 function checksHTML() {
   // problèmes (mesures qui s'écartent) : tous listés, c'est ce que compte la pastille ⚠ ; suggestions à part
   const all = checkList(), probs = all.filter(c => c.type === "control"), sugg = all.filter(c => c.type !== "control");
   const card = c => `<div class="chk ${c.type === "control" ? "warn" : ""}"><span class="hint">${c.text}</span>
-    <div class="row">${c.acts.map(([l, a], i) => `<button class="btn ${i === 0 && c.type !== "align" ? "primary" : ""} ${c.type === "align" ? "grow" : ""}" data-act="${a}">${l}</button>`).join("")}</div></div>`;
+    <div class="row">${c.acts.map(([l, a], i) => `<button class="btn ${i === 0 && c.type !== "align" ? "primary" : ""} ${c.type === "align" ? "grow" : ""}" data-act="${a}">${l}</button>`).join("")}</div>${checkSuspects(c)}</div>`;
   const sShown = ui.allSugg ? sugg : sugg.slice(0, 2);
   return `<div class="sec"><span class="label">Vérifications${probs.length ? ` · ${probs.length} à vérifier` : ""}</span>${probs.length ? probs.map(card).join("") : `<p class="small">Aucune mesure en désaccord.</p>`}</div>
     ${sugg.length ? `<div class="sec"><span class="label">Suggestions · ${sugg.length}</span>${sShown.map(card).join("")}
@@ -2154,9 +2337,14 @@ function act(name, ...args) {
     case "depthc": ui.customDepth = !ui.customDepth; return renderSheet();
     case "details": ui.details = !ui.details; return refresh();
     case "swing": if (ui.draft) { ui.draft.swing = arg; if (arg2) ui.draft.hinge = arg2; } return refresh();
+    case "thru": ui.thru = arg; return renderSheet();
+    case "jamb-piece": return jambPiece(meas(arg));
+    case "thru-go": { const m = meas(arg), o = m && throughOptions(m)[+arg2]; if (!o) return toast("Visée introuvable"); const v = ui.view; resetUi(); ui.view = v; ui.cote = o; refresh(); return toast("Mesure à travers : suis la consigne du panneau"); }
+    case "through-part": { const c = checkList().find(c => c.key === "g:" + arg); if (!c || !c.prop) return; ui.view = "releve"; resetUi(); ui.cote = c.prop; refresh(); fit(); return toast("Mesure à travers : suis la consigne du panneau"); }
+    case "goop": { const o = opening(arg); if (!o) return; const [h] = doorRooms(o); ui.view = "releve"; resetUi(); if (h) D.cur = h.id; ui.sel = { type: "op", id: o.id }; refresh(); if (h) fitRoom(h); return; }
     case "add-pick": ui.addPick = arg; ui.sel = null; return refresh();
     case "add-cancel": ui.addPick = null; return refresh();
-    case "add-on": { const m = meas(arg); if (!m) return; const k = ui.addPick || "door"; ui.addPick = null; startDraft(k, m.id, false); return refresh(); }
+    case "add-on": { const m = meas(arg); if (!m) return; const k = ui.addPick || "door"; ui.addPick = null; if (k === "through") { ui.sel = { type: "meas", id: m.id }; ui.thru = m.id; return refresh(); } startDraft(k, m.id, false); return refresh(); }
     case "pickwall": ui.pickWall = true; renderSheet(); return toast("Touche un mur sur le plan");
     case "cancel-op": ui.draft = null; ui.pickWall = false; ui.details = false; return refresh();
     case "validate": return validateOpening();
@@ -2172,7 +2360,7 @@ function act(name, ...args) {
     case "angle-ok": return angleOk(arg);
     case "align-pick": ui.alignPick = ui.alignPick === arg ? null : arg; renderSheet(); return ui.alignPick ? toast("Touche sur le plan le mur qui est sur la même ligne") : null;
     case "equal-pick": ui.equalPick = ui.equalPick === arg ? null : arg; ui.alignPick = null; renderSheet(); return ui.equalPick ? toast("Touche sur le plan le mur qui a la même longueur") : null;
-    case "unalign": pushUndo(); D.cons = D.cons.filter(c => c.id !== arg); refresh(); return toast("Alignement retiré");
+    case "unalign": { const c0 = D.cons.find(c => c.id === arg); pushUndo(); D.cons = D.cons.filter(c => c.id !== arg); refresh(); return toast(c0 && c0.kind === "equal" ? "« Même longueur » retiré" : "Alignement retiré"); }
     case "delmeas": { const m = ui.sel && meas(ui.sel.id); if (!m) return; if (ui.armDel !== m.id) { ui.armDel = m.id; return renderSheet(); } return deleteMeas(m.id); }
     case "through": return openThrough(arg || (ui.sel && ui.sel.id));
     case "through-check": { const c = checkList().find(c => c.type === "partition"); if (!c) return toast("Aucune cloison supposée à mesurer"); ui.view = "releve"; resetUi(); ui.cote = c.prop; refresh(); fit(); return toast("Mesure à travers : suis la consigne du panneau"); }
