@@ -351,6 +351,8 @@ function normalize(d) {
   d.nav = Object.assign({ dir: 0, turn: 1, trace: false }, d.nav);
   for (const r of d.rooms) { if (!r.status) r.status = "closed"; if (r.loop == null) r.loop = r.status !== "sketch"; if (!r.turn) r.turn = 1; if (r.height === undefined) r.height = null; }
   if (d.cur && !d.rooms.some(r => r.id === d.cur)) d.cur = null;
+  // plans préparés avant la souplesse des portes prévues : on l'applique
+  for (const o of d.openings || []) if (o.planned) for (const c of d.cons) if (c.op === o.id) { if (c.kind === "link" && c.sa < 0.3) c.sa = 0.3; if (c.kind === "door" && c.sa < 0.1) c.sa = 0.1; }
   return d;
 }
 function loadStored() {
@@ -1463,6 +1465,7 @@ function toWall(dir, ded) {
 }
 function prevOpposite(r, a) { const p = lastWallDir(r); return p != null && norm(p + 180) === norm(a); }
 const SNAP = 0.35;            // aimantage du croquis : un écart plus petit est absorbé par les longueurs de croquis
+const PLAN_SA = 0.3;          // incertitude (m) d'une position de porte prévue, pas encore mesurée
 const axisDir = (x, y) => Math.abs(x) >= Math.abs(y) ? (x > 0 ? 0 : 180) : (y > 0 ? 90 : 270);
 function closeShape() {
   const r = curRoom(); if (!r || r.status !== "sketch" || r.loop) return;
@@ -1621,7 +1624,8 @@ function relinkOpening(o) {
   const [s1, s2] = jambs(o, solve().res.get(m.id).kept), left = [wg.nin[1], -wg.nin[0]], u = dirv(m.ang);
   const sL = left[0] * u[0] + left[1] * u[1] > 0 ? s2 : s1, sR = sL === s2 ? s1 : s2;
   const out = [-wg.nin[0], -wg.nin[1]], o90 = [-u[1], u[0]], side = o90[0] * out[0] + o90[1] * out[1] > 0 ? 1 : -1;
-  c.a = m.a; c.u = u; c.o = side; c.s = sL; cd.u = u; cd.o = side; cd.s = sR - sL; SOL = null;
+  c.a = m.a; c.u = u; c.o = side; c.s = sL; cd.u = u; cd.o = side; cd.s = sR - sL;
+  c.sa = o.planned ? PLAN_SA : 0.005; cd.sa = o.planned ? PLAN_SA / 3 : 0.002; SOL = null;
 }
 function passDoor(o) {
   if (!o || o.type !== "door") return;
@@ -1650,8 +1654,9 @@ function passDoor(o) {
     const left = [wg.nin[1], -wg.nin[0]], sL = left[0] * u[0] + left[1] * u[1] > 0 ? s2 : s1, sR = sL === s2 ? s1 : s2;
     const o90 = [-u[1], u[0]], side = o90[0] * out[0] + o90[1] * out[1] > 0 ? 1 : -1, t = D.thick, A = wg.A;
     J1 = addPoint(A[0] + u[0] * sL + out[0] * t, A[1] + u[1] * sL + out[1] * t, null); J2 = addPoint(A[0] + u[0] * sR + out[0] * t, A[1] + u[1] * sR + out[1] * t, null);
-    D.cons.push({ id: nid("c"), kind: "link", op: o.id, a: m.a, b: J1.id, u, s: sL, o: side, t, sa: 0.005, sp: 0.05 });
-    D.cons.push({ id: nid("c"), kind: "door", op: o.id, a: J1.id, b: J2.id, u, s: sR - sL, o: side, t: 0, sa: 0.002, sp: 0.002 });
+    // porte prévue (plan préparé) : position et largeur souples tant qu'elles ne sont pas mesurées, pour ne pas décaler toute la pièce derrière
+    D.cons.push({ id: nid("c"), kind: "link", op: o.id, a: m.a, b: J1.id, u, s: sL, o: side, t, sa: o.planned ? PLAN_SA : 0.005, sp: 0.05 });
+    D.cons.push({ id: nid("c"), kind: "door", op: o.id, a: J1.id, b: J2.id, u, s: sR - sL, o: side, t: 0, sa: o.planned ? PLAN_SA / 3 : 0.002, sp: 0.002 });
     o.pass = { j1: J1.id, j2: J2.id, t, known: false };
   }
   SOL = null;
