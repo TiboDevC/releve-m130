@@ -808,7 +808,9 @@ function drawHouse(g, P, o) {
     const hl = o.screen && ((ui.sel && ui.sel.type === "meas" && ui.sel.id === m.id) || ui.control === m.id || (ui.draft && ui.draft.meas === m.id));
     if (hl) el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: c.laser, "stroke-opacity": .28, "stroke-width": 12, "stroke-linecap": "round" }, g);
     if (m.kind === "wall") for (const [a, b] of wallPieces(wg, o.screen)) {
-      const pa = P(...a), pb = P(...b), at = { x1: pa[0], y1: pa[1], x2: pb[0], y2: pb[1], stroke: flag ? c.warn : sk ? c.sketch : c.ink, "stroke-width": sk ? 3 : 4, "stroke-linecap": "round" };
+      // mesuré au M130 : trait blanc ; déduit par l'app (sans mesure) : trait gris ; croquis : pointillés
+      const ded = o.screen && !m.obs.length;
+      const pa = P(...a), pb = P(...b), at = { x1: pa[0], y1: pa[1], x2: pb[0], y2: pb[1], stroke: flag ? c.warn : sk ? c.sketch : ded ? c.dim : c.ink, "stroke-width": sk || ded ? 3 : 4, "stroke-linecap": "round" };
       if (o.screen && !m.obs.length && !sameAs(m) && !(wr && wr.status === "closed" && determined(m))) at["stroke-dasharray"] = sk ? "8 6" : "6 5";        // non fixé : pointillés
       el("line", at, g);
     } else el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: flag ? c.warn : c.muted, "stroke-width": 1.2, "stroke-dasharray": "6 4" }, g);
@@ -825,10 +827,15 @@ function drawHouse(g, P, o) {
         const pa = P(...best[0]), pb = P(...best[1]); if (Math.hypot(pb[0] - pa[0], pb[1] - pa[1]) > o.fs * 4) { MA = pa; MB = pb; } } }
       const mx = (MA[0] + MB[0]) / 2 + out[0] * off, my = (MA[1] + MB[1]) / 2 + out[1] * off;
       let ang = Math.atan2(B[1] - A[1], B[0] - A[0]) * 180 / Math.PI; if (ang > 90.5 || ang < -89.5) ang += 180;
-      const pre = o.screen && !m.obs.length ? (sameAs(m) || (wr && wr.status === "closed" && determined(m)) ? "=" : "≈") : "", str = pre + fmt(rs ? rs.kept : wg.L, sk ? 2 : o.digits) + (flag ? " !" : "");
-      const len = Math.hypot(B[0] - A[0], B[1] - A[1]), tw = str.length * o.fs * .6, vertical = Math.abs(B[0] - A[0]) < Math.abs(B[1] - A[1]);
-      if (len >= tw + 6 && fits(mx, my, vertical ? o.fs * 1.1 : tw, vertical ? tw : o.fs * 1.1))
-        txt(g, mx, my, str, { size: o.fs, fill: flag ? c.warn : m.kind === "cote" || sk ? c.muted : c.label, font: o.num, rot: ang, pe: false });
+      // étiquette : point laser devant une longueur mesurée au M130 ; longueur déduite en gris ; « ≈ » pour un croquis
+      const known = !m.obs.length && (sameAs(m) || (wr && wr.status === "closed" && determined(m)));
+      const pre = o.screen && !m.obs.length && !known ? "≈" : "", str = pre + fmt(rs ? rs.kept : wg.L, sk ? 2 : o.digits) + (flag ? " !" : "");
+      const dot = o.screen && m.obs.length > 0;
+      const len = Math.hypot(MB[0] - MA[0], MB[1] - MA[1]) || Math.hypot(B[0] - A[0], B[1] - A[1]), tw = (str.length + (dot ? 1.3 : 0)) * o.fs * .6, vertical = Math.abs(B[0] - A[0]) < Math.abs(B[1] - A[1]);
+      if (len >= tw + 6 && fits(mx, my, vertical ? o.fs * 1.1 : tw, vertical ? tw : o.fs * 1.1)) {
+        const t = txt(g, mx, my, str, { size: o.fs, fill: flag ? c.warn : m.kind === "cote" || sk || (o.screen && !m.obs.length) ? c.muted : c.label, font: o.num, rot: ang, pe: false });
+        if (dot) { t.textContent = ""; const d = el("tspan", { fill: c.laser, "font-size": o.fs * .75 }, t); d.textContent = "● "; const v = el("tspan", {}, t); v.textContent = str; }
+      }
     }
   }
   if (o.screen) drawConstraints(g, P);
