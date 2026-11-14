@@ -352,7 +352,7 @@ function normalize(d) {
   for (const r of d.rooms) { if (!r.status) r.status = "closed"; if (r.loop == null) r.loop = r.status !== "sketch"; if (!r.turn) r.turn = 1; if (r.height === undefined) r.height = null; }
   if (d.cur && !d.rooms.some(r => r.id === d.cur)) d.cur = null;
   // plans préparés avant la souplesse des portes prévues : on l'applique
-  for (const o of d.openings || []) if (o.planned) for (const c of d.cons) if (c.op === o.id) { if (c.kind === "link" && c.sa < 0.3) c.sa = 0.3; if (c.kind === "door" && c.sa < 0.1) c.sa = 0.1; }
+  for (const o of d.openings || []) if (o.planned) for (const c of d.cons) if (c.op === o.id) { if (c.kind === "link" && c.sa < 1) c.sa = 1; if (c.kind === "door" && c.sa < 0.33) c.sa = 1 / 3; }
   return d;
 }
 function loadStored() {
@@ -440,7 +440,7 @@ function undo() {
   if (!undoStack.length) return toast("Rien à annuler");
   D = JSON.parse(undoStack.pop()); lastBip = null; resetUi(); refresh(); toast("Annulé");
 }
-function refresh() { SOL = null; CHK = null; const closed = autoClose(); save(); renderHeader(); renderSheet(); render(); if (closed) setTimeout(() => toast(closed), 0); }
+function refresh() { SOL = null; CHK = null; syncPlannedDoors(); const closed = autoClose(); save(); renderHeader(); renderSheet(); render(); if (closed) setTimeout(() => toast(closed), 0); }
 
 /* ---------- pièces : contours et murs ---------- */
 function edgeMeas(a, b) { const k = ekey(a, b); return D.meas.find(m => m.kind === "wall" && ekey(m.a, m.b) === k); }
@@ -520,7 +520,7 @@ function equations(over, opt) {
       const L = over && over.has(m.id) ? over.get(m.id) : m.sketch;
       if (L == null) { if (!(norm(m.ang) % 90)) eqs.push({ a: m.a, b: m.b, ax: norm(m.ang) % 180 ? 0 : 1, val: 0, v: SIGP(2) ** 2 }); continue; }
       // un mur « déduit » ne garde son croquis que pour rester déterminé : il ne tire plus sur les mesures
-      const va = (m.ded ? 50 * SK : SK) ** 2, vp = SIGP(Math.max(L, 2)) ** 2;
+      const va = (m.ded ? 50 * SK : m.plan ? PLAN_SK : SK) ** 2, vp = SIGP(Math.max(L, 2)) ** 2;
       eqs.push({ a: m.a, b: m.b, ax: 0, val: L * c, v: va * c * c + vp * s * s });
       eqs.push({ a: m.a, b: m.b, ax: 1, val: L * s, v: va * s * s + vp * c * c });
       continue;
@@ -1465,7 +1465,8 @@ function toWall(dir, ded) {
 }
 function prevOpposite(r, a) { const p = lastWallDir(r); return p != null && norm(p + 180) === norm(a); }
 const SNAP = 0.35;            // aimantage du croquis : un écart plus petit est absorbé par les longueurs de croquis
-const PLAN_SA = 0.3;          // incertitude (m) d'une position de porte prévue, pas encore mesurée
+const PLAN_SA = 1.0;          // incertitude (m) d'une position de porte prévue : les portes bougent souvent par rapport au plan
+const PLAN_SK = 0.15;         // incertitude (m) d'une longueur de mur prévue (tapée d'après un plan) : plus fiable qu'un croquis
 const axisDir = (x, y) => Math.abs(x) >= Math.abs(y) ? (x > 0 ? 0 : 180) : (y > 0 ? 90 : 270);
 function closeShape() {
   const r = curRoom(); if (!r || r.status !== "sketch" || r.loop) return;
@@ -1616,6 +1617,24 @@ function validateOpening() {
   // la fiche de l'ouverture reste ouverte (porte : « Passer de l'autre côté »)
   ui.sel = { type: "op", id };
   refresh(); toast(d.type === "door" ? `${d.swing === "none" ? "Passage" : "Porte"} ${id} ajouté${d.swing === "none" ? "" : "e"}${linked ? ` : donne sur ${linked.name}, les deux murs sont ouverts` : ""}` : `Fenêtre ${id} ajoutée`);
+}
+function syncPlannedDoors() {
+  // porte prévue avec une pièce derrière : sa position sur le mur suit les montants placés par l'ajustement
+  // (les murs de la pièce derrière disent où est vraiment la porte) ; elle reste ainsi au même endroit des deux côtés
+  for (let pass = 0; pass < 3; pass++) {
+    const upd = [];
+    for (const o of D.openings) {
+      if (!o.planned || !o.pass) continue;
+      const m = meas(o.meas), wg = m && wallGeom(m), J1 = Pof(o.pass.j1), J2 = Pof(o.pass.j2); if (!wg || !J1 || !J2) continue;
+      const t1 = (J1[0] - wg.A[0]) * wg.u[0] + (J1[1] - wg.A[1]) * wg.u[1], t2 = (J2[0] - wg.A[0]) * wg.u[0] + (J2[1] - wg.A[1]) * wg.u[1];
+      const s1 = Math.min(t1, t2), s2 = Math.max(t1, t2), pos = o.ref === "b" ? wg.L - s2 : s1;
+      if (Math.abs(pos - o.pos) > 0.002 || Math.abs(s2 - s1 - o.width) > 0.002) upd.push([o, r3(Math.max(0, pos)), r3(s2 - s1)]);
+    }
+    if (!upd.length) return;
+    for (const [o, pos, w] of upd) { o.pos = pos; o.width = w; }
+    for (const [o] of upd) relinkOpening(o);
+    SOL = null;
+  }
 }
 function relinkOpening(o) {
   // recale les contraintes de passage (montants de l'autre côté) sur la nouvelle position de l'ouverture
