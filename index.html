@@ -629,10 +629,10 @@ function pairFixed(r1, r2) {
   if (D.openings.some(o => { if (!o.pass || !(o.pass.known || o.pass.fixed)) return false; const [h, j] = doorRooms(o); return h && j && ekey(h.id, j.id) === k; })) return true;
   return D.cons.some(c => c.kind === "thick" && c.known && c.walls && (() => { const a = roomOfWall(meas(c.walls[0])), b = roomOfWall(meas(c.walls[1])); return a && b && ekey(a.id, b.id) === k; })());
 }
-function roomFaces(P) {
+function roomFaces(P, withSketch) {
   const ws = [];
   for (const r of D.rooms) {
-    if (!r.loop || r.status === "sketch") continue;
+    if (!r.loop || (r.status === "sketch" && !withSketch)) continue;
     const c = r.contour, poly = c.map(id => P.get(id)); if (poly.some(x => !x) || poly.length < 3) continue;
     const cw = signedArea(poly) >= 0;
     c.forEach((a, i) => {
@@ -645,9 +645,9 @@ function roomFaces(P) {
   }
   return ws;
 }
-function facingPairs(P) {
+function facingPairs(P, withSketch) {
   // deux murs de pièces différentes, parallèles, dos à dos : g = écart entre eux (négatif = les pièces se chevauchent)
-  const ws = roomFaces(P), out = [];
+  const ws = roomFaces(P, withSketch), out = [];
   for (let i = 0; i < ws.length; i++) for (let j = i + 1; j < ws.length; j++) {
     const p = ws[i], q = ws[j];
     if (p.r === q.r || p.ax !== q.ax || p.out !== -q.out || Math.min(p.hi, q.hi) - Math.max(p.lo, q.lo) < 0.2) continue;
@@ -745,8 +745,26 @@ function jambs(o, L) {
   if (o.ref === "b") { s2 = L - (o.pos || 0); s1 = s2 - (o.width || 0); } else { s1 = o.pos || 0; s2 = s1 + (o.width || 0); }
   return [s1, s2];
 }
+function twinOf(o, R) {
+  // porte reliée à une pièce existante : le passage correspondant dans le mur d'en face de cette pièce (calculé, jamais stocké)
+  R = R || (o.into && room(o.into)); const m = meas(o.meas), wg = m && wallGeom(m); if (!R || !wg || norm(m.ang) % 90) return null;
+  const og = openingGeom(o, wg), mid = [(og.J1[0] + og.J2[0]) / 2, (og.J1[1] + og.J2[1]) / 2], out = [-wg.nin[0], -wg.nin[1]];
+  let best = null;
+  for (const w of roomWalls(R)) {
+    if (norm(w.ang) % 180 !== norm(m.ang) % 180) continue;
+    const g = wallGeom(w); if (!g) continue;
+    const d = (g.A[0] - mid[0]) * out[0] + (g.A[1] - mid[1]) * out[1];           // de l'autre côté du mur, à moins de 40 cm
+    if (d < -0.02 || d > 0.4) continue;
+    const t = (mid[0] - g.A[0]) * g.u[0] + (mid[1] - g.A[1]) * g.u[1]; if (t < 0 || t > g.L) continue;
+    if (!best || d < best.d) best = { w, g, d };
+  }
+  if (!best) return null;
+  const g = best.g, t1 = (og.J1[0] - g.A[0]) * g.u[0] + (og.J1[1] - g.A[1]) * g.u[1], t2 = (og.J2[0] - g.A[0]) * g.u[0] + (og.J2[1] - g.A[1]) * g.u[1];
+  return { id: "", twin: o.id, type: o.type, meas: best.w.id, ref: "a", pos: Math.max(0, Math.min(t1, t2)), width: Math.abs(t2 - t1), swing: "none", hinge: "right", planned: o.planned };
+}
 function openingsOn(mid, withDraft) {
   const l = D.openings.filter(o => o.meas === mid);
+  for (const o of D.openings) if (o.into && !o.pass) { const tw = twinOf(o); if (tw && tw.meas === mid) l.push(tw); }
   const d = ui.draft;
   if (withDraft && d && d.meas === mid && d.pos != null && d.width != null) l.push(Object.assign({ id: "" }, d));
   return l;
@@ -1602,6 +1620,12 @@ function relinkOpening(o) {
 }
 function passDoor(o) {
   if (!o || o.type !== "door") return;
+  if (!o.pass && o.into && room(o.into)) {
+    // porte reliée à une pièce existante : on passe dans cette pièce (ou on revient)
+    const host = roomOfWall(meas(o.meas)), target = D.cur === o.into ? host : room(o.into);
+    dropEmptyRooms(target.id); D.cur = target.id; D.nav.trace = false; resetUi(); ui.view = "releve"; refresh(); fitRoom(target);
+    return toast(`De l'autre côté de ${o.id} : ${target.name}`);
+  }
   const m = meas(o.meas), host = roomOfWall(m), [, jr] = doorRooms(o);
   if (jr) {
     const target = D.cur === jr.id ? host : jr;
@@ -1793,12 +1817,12 @@ function houseRay(S, d, skip) {
     const q = [A[0] - S[0], A[1] - S[1]], t = (q[0] * e[1] - q[1] * e[0]) / den, sa = (q[0] * d[1] - q[1] * d[0]) / den;
     if (t <= 0.02 || sa < 0 || sa > 1) continue;
     const L = Math.hypot(e[0], e[1]), at = sa * L;
-    const door = D.openings.find(o => o.meas === w.id && o.type === "door" && (([a, b]) => at > Math.min(a, b) + 0.04 && at < Math.max(a, b) - 0.04)(jambs(o, L)));
+    const door = openingsOn(w.id).find(o => o.type === "door" && (([a, b]) => at > Math.min(a, b) + 0.04 && at < Math.max(a, b) - 0.04)(jambs(o, L)));
     hits.push({ w, t, door, ok: !(norm(w.ang) % 90) });
   }
   hits.sort((a, b) => a.t - b.t);
   const doors = [];
-  for (const h of hits) { if (h.door) { if (!doors.includes(h.door.id)) doors.push(h.door.id); continue; } return { w: h.w, t: h.t, doors, ok: h.ok }; }
+  for (const h of hits) { if (h.door) { const id = h.door.id || h.door.twin; if (!doors.includes(id)) doors.push(id); continue; } return { w: h.w, t: h.t, doors, ok: h.ok }; }
   return null;
 }
 function throughOptions(m) {
@@ -1916,7 +1940,8 @@ function suspectsHTML(list) {
 function badPartitions(sol) {
   // cloisons écrasées (< 5 cm) ou pièces qui se chevauchent : une mesure ou une contrainte ne colle pas à la réalité
   const known = new Set(D.cons.filter(c => c.kind === "thick" && c.known && c.walls).map(c => c.walls.slice().sort().join("|")));
-  return facingPairs(sol.P).filter(f => f.g < 0.05 && !known.has([f.p.m, f.q.m].sort().join("|")));
+  // pièces en croquis comprises : un plan préparé qui se chevauche se voit tout de suite
+  return facingPairs(sol.P, true).filter(f => f.g < 0.05 && !known.has([f.p.m, f.q.m].sort().join("|")));
 }
 
 /* ---------- menu ☰ : projet, mesures, M130 ---------- */
@@ -2451,11 +2476,16 @@ function wallFiche(m) {
 }
 function opFiche(o) {
   const m = meas(o.meas), isDoor = o.type === "door", t = isDoor ? (o.swing === "none" ? "Passage" : "Porte") : "Fenêtre";
-  const [host, jr] = doorRooms(o), other = jr ? (D.cur === jr.id ? host : jr) : null;
+  const [host, jr] = doorRooms(o), into = !o.pass && o.into && room(o.into), other = jr ? (D.cur === jr.id ? host : jr) : into ? (D.cur === into.id ? host : into) : null;
   let h = `<div class="fhead"><div class="cardtxt"><span class="label">${t} ${o.id}</span><span class="big">${fmt(o.width, 2)} m de large</span></div>${closeX}</div>`;
   h += `<span class="hint">Sur le mur ${m ? mName(m) : "?"}, à ${fmt(o.pos, 2)} m du coin ${m ? lab(o.ref === "b" ? m.b : m.a) : "?"}${o.height ? ` · ${fmt(o.height, 2)} m de haut` : ""}${o.sill ? ` · allège ${fmt(o.sill, 2)} m` : ""}${o.depth ? ` · embrasure ${Math.round(o.depth * 100)} cm` : ""}.</span>`;
   if (o.planned) h += `<div class="warnbox" style="border-color:var(--line)"><span class="hint"><b>Prévue</b> d'après le plan préparé : position et largeur à mesurer sur place.</span><button class="btn primary" data-act="op-measure:${o.id}">Mesurer ${isDoor ? "cette porte" : "cette fenêtre"} sur place</button></div>`;
   if (isDoor && m) h += swingRow(o, "opswing");
+  if (isDoor && !o.pass) {
+    const cands = D.rooms.filter(R => R !== host && twinOf(o, R));
+    if (o.into && room(o.into)) h += `<div class="sec"><span class="label">De l'autre côté</span><div class="row nowrap"><span class="hint" style="flex:1">Donne sur <b>${esc(room(o.into).name)}</b>${twinOf(o) ? "" : " (mur d'en face introuvable)"}</span><button class="btn" data-act="op-into:${o.id}:">Détacher</button></div></div>`;
+    else if (cands.length) h += `<div class="sec"><span class="label">De l'autre côté : une pièce déjà dessinée ?</span><div class="row">${cands.map(R => `<button class="btn" data-act="op-into:${o.id}:${R.id}">Donne sur ${esc(R.name)}</button>`).join("")}</div></div>`;
+  }
   if (o.pass) h += `<div class="sec"><span class="label">Épaisseur du mur</span><div class="row"><button class="mini ${!o.pass.known ? "on" : ""}" data-act="thick:auto" style="font-family:var(--f-ui)">Calculée</button>
       ${[[0.07, "7"], [0.1, "10"], [0.2, "20"]].map(([v, l]) => `<button class="mini ${o.pass.known && Math.abs(o.pass.t - v) < 1e-6 ? "on" : ""}" data-act="thick:${v}">${l} cm</button>`).join("")}</div>
       <p class="small">${o.pass.fixed ? `Mesurée à travers la porte : ≈ ${fmt(Math.abs(linkThick(o)) * 100, 1)} cm.` : `« Calculée » : sans mesure à travers, l'app suppose ${Math.round(D.thick * 100)} cm.`}</p></div>`;
@@ -2721,6 +2751,7 @@ function act(name, ...args) {
     case "plan-yes": { const p = ui.pending; if (!p || p.kind !== "plan") return; ui.pending = null; ui.wall = p.m; ui.planOk = true; onMeasure(p.v); ui.planOk = false; return; }
     case "plan-no": ui.pending = null; refresh(); return toast("Bip oublié");
     case "corner": return restoreCorner(meas(arg));
+    case "op-into": { const o = opening(arg); if (!o) return; pushUndo(); if (arg2) o.into = arg2; else delete o.into; SOL = null; refresh(); return toast(arg2 ? `${o.id} donne sur ${room(arg2).name} : passage ouvert dans son mur` : `${o.id} détachée`); }
     case "delpt": if (ui.armDel !== arg) { ui.armDel = arg; return renderSheet(); } return deletePoint(arg);
     case "op-measure": { const o = opening(arg); if (!o) return; startDraft(o.type, o.meas, o.swing === "none"); Object.assign(ui.draft, { editOf: o.id, ref: o.ref, swing: o.swing, hinge: o.hinge }); return refresh(); }
     case "menu": { const was = ui.menu; ui.menu = was ? null : "main"; ui.armDel = null; sheetMin = false; return refresh(); }
