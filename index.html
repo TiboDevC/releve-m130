@@ -336,7 +336,9 @@ function roomOfEdge(a, b) {
   return null;
 }
 const roomOfWall = m => m ? (roomOfEdge(m.a, m.b) || {}).r || null : null;
-const isDone = m => m.obs.length > 0 || !!m.ded;
+// un mur sans mesure peut tenir sa longueur d'un mur mesuré auquel il est déclaré égal
+const sameAs = m => { for (const c of D.cons) if (c.kind === "equal" && c.walls.includes(m.id)) { const o = D.meas.find(x => x.id === c.walls.find(id => id !== m.id)); if (o && o.obs.length) return o; } return null; };
+const isDone = m => m.obs.length > 0 || !!m.ded || !!sameAs(m);
 function wallOrder(r) { return roomWalls(r); }
 function currentWall(r) {
   const ws = wallOrder(r);
@@ -684,7 +686,7 @@ function drawHouse(g, P, o) {
     if (hl) el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: c.laser, "stroke-opacity": .28, "stroke-width": 12, "stroke-linecap": "round" }, g);
     if (m.kind === "wall") for (const [a, b] of wallPieces(wg, o.screen)) {
       const pa = P(...a), pb = P(...b), at = { x1: pa[0], y1: pa[1], x2: pb[0], y2: pb[1], stroke: flag ? c.warn : sk ? c.sketch : c.ink, "stroke-width": sk ? 3 : 4, "stroke-linecap": "round" };
-      if (o.screen && !m.obs.length) at["stroke-dasharray"] = sk ? "8 6" : "6 5";        // déduit ou croquis : pointillés
+      if (o.screen && !m.obs.length && !sameAs(m)) at["stroke-dasharray"] = sk ? "8 6" : "6 5";        // déduit ou croquis : pointillés
       el("line", at, g);
     } else el("line", { x1: A[0], y1: A[1], x2: B[0], y2: B[1], stroke: flag ? c.warn : c.muted, "stroke-width": 1.2, "stroke-dasharray": "6 4" }, g);
     if (cw && cw.id === m.id) {
@@ -696,7 +698,7 @@ function drawHouse(g, P, o) {
       const out = [-wg.nin[0], -wg.nin[1]], off = m.kind === "cote" ? -o.fs * .9 : o.fs * 1.2;
       const mx = (A[0] + B[0]) / 2 + out[0] * off, my = (A[1] + B[1]) / 2 + out[1] * off;
       let ang = Math.atan2(B[1] - A[1], B[0] - A[0]) * 180 / Math.PI; if (ang > 90.5 || ang < -89.5) ang += 180;
-      const pre = o.screen && !m.obs.length ? "≈" : "", str = pre + fmt(rs ? rs.kept : wg.L, sk ? 2 : o.digits) + (flag ? " !" : "");
+      const pre = o.screen && !m.obs.length ? (sameAs(m) ? "=" : "≈") : "", str = pre + fmt(rs ? rs.kept : wg.L, sk ? 2 : o.digits) + (flag ? " !" : "");
       const len = Math.hypot(B[0] - A[0], B[1] - A[1]), tw = str.length * o.fs * .6, vertical = Math.abs(B[0] - A[0]) < Math.abs(B[1] - A[1]);
       if (len >= tw + 6 && fits(mx, my, vertical ? o.fs * 1.1 : tw, vertical ? tw : o.fs * 1.1))
         txt(g, mx, my, str, { size: o.fs, fill: flag ? c.warn : m.kind === "cote" || sk ? c.muted : c.label, font: o.num, rot: ang, pe: false });
@@ -1679,8 +1681,15 @@ function equalWalls(m1, m2) {
   if (D.cons.some(c => c.kind === "equal" && c.walls.includes(m1.id) && c.walls.includes(m2.id))) { refresh(); return toast("Ces deux murs ont déjà la même longueur"); }
   const d = Math.abs(wallLen(m1) - wallLen(m2));
   pushUndo();
-  D.cons.push({ id: nid("c"), kind: "equal", walls: [m1.id, m2.id] });
-  refresh(); toast(`${mName(m1)} et ${mName(m2)} ont la même longueur · écart de ${cm(d)} réparti`);
+  D.cons.push({ id: nid("c"), kind: "equal", walls: [m1.id, m2.id] }); SOL = null;
+  // le mur égal à un mur mesuré est désormais connu : la mesure guidée passe au suivant, et la pièce se ferme si tout est connu
+  let closed = null;
+  for (const r of new Set([roomOfWall(m1), roomOfWall(m2)].filter(Boolean))) {
+    if (r.status !== "measure") continue;
+    if (ui.wall && isDone(meas(ui.wall))) { const nx = nextTodo(r, meas(ui.wall)); ui.wall = nx ? nx.id : null; }
+    closed = maybeClose(r) || closed;
+  }
+  refresh(); toast(closed || `${mName(m1)} et ${mName(m2)} ont la même longueur · écart de ${cm(d)} réparti`);
 }
 function alignWalls(m1, m2) {
   // deux murs parallèles sur une même ligne : on fixe leur coordonnée perpendiculaire commune
@@ -1695,7 +1704,8 @@ function alignWalls(m1, m2) {
 }
 function wallFiche(m) {
   const sol = solve(), rs = sol.res.get(m.id), r = roomOfWall(m), flag = rs && rs.flag;
-  const state = m.obs.length ? `Mesuré ${m.obs.length > 1 ? m.obs.length + " fois : " : ""}${m.obs.map(x => fmt(x)).join(" / ")} m` : m.ded ? "Déduit, sans mesure" : "Croquis, pas encore mesuré";
+  const eqm = !m.obs.length && sameAs(m);
+  const state = m.obs.length ? `Mesuré ${m.obs.length > 1 ? m.obs.length + " fois : " : ""}${m.obs.map(x => fmt(x)).join(" / ")} m` : eqm ? `Même longueur que ${mName(eqm)} (mesuré)` : m.ded ? "Déduit, sans mesure" : "Croquis, pas encore mesuré";
   const worst = rs ? rs.resid.reduce((a, b) => Math.abs(b) > Math.abs(a) ? b : a, 0) : 0;
   let h = `<div class="fhead"><span class="label">${m.kind === "wall" ? "Mur" : "Cote à travers"}${r ? " · " + esc(r.name) : ""}</span>${closeX}</div>
     <div class="cardtxt"><span class="big">${m.kind === "wall" ? "Mur" : "Cote"} ${mName(m)} · ${fmt(rs ? rs.kept : wallLen(m), 2)} m</span>
