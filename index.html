@@ -187,6 +187,59 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 @media (min-width: 900px) { .bar { border-top: 0; padding-top: 4px; } #sheet[data-view="maison"] { max-height: none; } }
 .lead { display: flex; flex-direction: column; gap: 2px; }
 .nowrap { flex-wrap: nowrap; }
+
+/* Téléphone : densité de la maquette (textes et boutons plus compacts, moins de défilement) */
+.btn.undo { white-space: nowrap; }
+@media (max-width: 480px) {
+  body { font-size: 14px; }
+  header { padding-top: calc(env(safe-area-inset-top, 0px) + 6px); padding-bottom: 6px; }
+  header .iconbtn { width: 38px; height: 38px; }
+  header .conn { min-height: 34px; padding: 0 10px; font-size: 12px; }
+  .eyebrow { font-size: 10px; }
+  .ttl b { font-size: 16px; }
+  .zoom { top: 8px; gap: 5px; }
+  .zoom button { width: 38px; height: 38px; font-size: 16px; }
+  #sheet { gap: 8px; border-radius: 16px 16px 0 0; max-height: 52%;
+    padding: 10px max(14px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px)); }
+  .bar { bottom: calc(-10px - env(safe-area-inset-bottom, 0px)); gap: 6px;
+    margin: 0 calc(-1 * max(14px, env(safe-area-inset-right, 0px))) calc(-10px - env(safe-area-inset-bottom, 0px)) calc(-1 * max(14px, env(safe-area-inset-left, 0px)));
+    padding: 8px max(14px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px)); }
+  .big { font-size: 18px; }
+  .hint { font-size: 12.5px; line-height: 1.35; }
+  .small { font-size: 11.5px; line-height: 1.35; }
+  .label { font-size: 10px; }
+  .btn { min-height: 40px; font-size: 13.5px; padding: 0 10px; }
+  .bar > .btn { padding: 0 8px; }
+  .btn.huge { min-height: 50px; font-size: 16px; }
+  .linkbtn { min-height: 36px; font-size: 13px; }
+  .chip { height: 34px; padding: 0 10px; font-size: 12.5px; }
+  .card { gap: 10px; padding: 8px; border-radius: 12px; }
+  .pict { width: 56px; height: 56px; }
+  .pict svg { width: 48px; height: 48px; }
+  .step { min-height: 42px; padding: 2px 8px; }
+  .step .pict { width: 44px; height: 44px; }
+  .step .pict svg { width: 38px; height: 38px; }
+  .stxt b { font-size: 13px; } .stxt span { font-size: 11.5px; }
+  .stat { padding: 6px 8px; } .stat b { font-size: 14px; } .stat span { font-size: 10px; }
+  .tr { font-size: 13px; }
+  .mini { height: 34px; min-width: 40px; }
+  .swing button { height: 40px; }
+  .swing button svg { width: 22px; height: 22px; }
+  .field { height: 40px; font-size: 14px; }
+  .pad { grid-template-columns: repeat(3, 46px); grid-template-rows: repeat(3, 40px); gap: 4px; }
+  .pad button { font-size: 19px; border-radius: 9px; }
+  .toggle button { font-size: 12.5px; padding: 4px 9px; }
+  .toggle small { font-size: 10.5px; }
+  .seg button { height: 32px; font-size: 12.5px; }
+  .pill { height: 32px; padding: 0 10px; font-size: 11.5px; }
+  .fhead .x { width: 36px; height: 36px; font-size: 18px; border-radius: 50%; }
+  .chk { padding: 8px 10px; gap: 6px; border-radius: 10px; }
+  .warnbox { padding: 10px; gap: 8px; }
+  .rrow { min-height: 40px; font-size: 13.5px; }
+  .rrow > button:first-child { min-height: 40px; font-size: 14px; }
+  .okdot { width: 28px; height: 28px; }
+  .form3 label { font-size: 10.5px; }
+}
 </style>
 </head>
 <body>
@@ -288,7 +341,7 @@ let D = blank(), SOL = null, CHK = null;
 const ui = { view: "releve" };
 function resetUi() {
   Object.assign(ui, { sel: null, wall: null, control: null, height: null, draft: null, pending: null, cote: null, manual: false, toWall: false,
-    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false });
+    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null });
 }
 resetUi();
 let view = { cx: 1.5, cy: 1, s: 60 }, undoStack = [], lastBip = null, conn = navigator.bluetooth ? "off" : "na", lastToast = "";
@@ -1051,6 +1104,10 @@ function handleTap(t) {
     const m = meas(t.meas); if (!m) return;
     if (ui.alignPick) { const m1 = meas(ui.alignPick); ui.alignPick = null; return alignWalls(m1, m); }
     if (ui.equalPick) { const m1 = meas(ui.equalPick); ui.equalPick = null; return equalWalls(m1, m); }
+    if (ui.addPick) {
+      if (m.kind !== "wall" || roomOfWall(m) !== r) return toast("Choisis un mur de cette pièce");
+      const k = ui.addPick; ui.addPick = null; startDraft(k, m.id, false); return refresh();
+    }
     if (ui.draft) {
       if (m.kind !== "wall") return toast("Une ouverture se place sur un mur, pas sur une cote");
       if (ui.draft.meas && !ui.pickWall && ui.draft.pos != null) return toast("Pour changer de mur, appuie sur « Changer de mur »");
@@ -1667,7 +1724,7 @@ function waitLine() {
 function manualRow() {
   return ui.manual ? `<div class="row" style="flex-wrap:nowrap"><input class="field" id="manIn" inputmode="decimal" placeholder="ex. 3,42" style="flex:1" aria-label="Mesure en mètres"><button class="btn primary" data-act="manual-ok">OK</button></div>` : "";
 }
-const undoBtn = () => `<button class="btn grow" data-act="undo" ${undoStack.length ? "" : "disabled"}>↶ Annuler${lastBip ? " " + fmt(lastBip.v) : ""}</button>`;
+const undoBtn = () => `<button class="btn grow undo" data-act="undo" ${undoStack.length ? "" : "disabled"} aria-label="Annuler${lastBip ? " la mesure " + fmt(lastBip.v) : ""}">↶ Annuler${lastBip ? " " + fmt(lastBip.v, 2) : ""}</button>`;
 const closeX = `<button class="x" data-act="close" aria-label="Fermer">×</button>`;
 function segHTML(r) {
   const st = r.status;
@@ -1719,10 +1776,17 @@ function measureHTML(r) {
   return h;
 }
 function closedHTML(r) {
-  return segHTML(r) + `<div class="card plain"><div class="cardtxt"><span class="big">${esc(r.name)} · ${fmt(roomArea(r), 2)} m²</span>
-      <span class="hint">Écart ${cm(roomGap(r))}. Touche un mur pour y ajouter une porte, une fenêtre ou une mesure de contrôle.</span></div></div>
-    <div class="stats"><div class="stat"><span>Surface</span><b>${fmt(roomArea(r), 2)} m²</b></div><div class="stat"><span>Périmètre</span><b>${fmt(roomPerim(r), 2)} m</b></div><div class="stat"><span>Hauteur</span><b>${r.height ? fmt(r.height, 2) + " m" : "—"}</b></div></div>
-    <div class="row nowrap"><button class="btn grow" data-act="height:${r.id}">Mesurer la hauteur</button><button class="btn grow" data-act="house">Voir la maison</button></div>
+  const info = `${fmt(roomArea(r), 2)} m² · périmètre ${fmt(roomPerim(r), 2)} m · hauteur ${r.height ? fmt(r.height, 2) + " m" : "—"} · écart ${cm(roomGap(r))}`;
+  if (ui.addPick) {
+    const k = ui.addPick, nm = k === "window" ? "la fenêtre" : "la porte";
+    return `<div class="fhead"><div class="cardtxt"><span class="eyebrow">${esc(r.name)}</span><span class="big">Sur quel mur, ${nm} ?</span></div></div>
+      <p class="hint">Touche le mur sur le plan, ou choisis-le ici.</p>
+      <div class="pills">${roomWalls(r).map(w => `<button class="pill" data-act="add-on:${w.id}">${mName(w)} · ${fmt(wallLen(w), 2)}</button>`).join("")}</div>
+      <div class="bar"><button class="btn grow" data-act="add-cancel">Annuler</button></div>`;
+  }
+  return segHTML(r) + `<div class="cardtxt"><span class="big">${esc(r.name)}</span><span class="hint">${info}</span></div>
+    <div class="row nowrap"><button class="btn grow" data-act="add-pick:window">+ Fenêtre</button><button class="btn grow" data-act="add-pick:door">+ Porte</button><button class="btn grow" data-act="height:${r.id}">Hauteur</button></div>
+    <p class="small">Ou touche un mur du plan : porte, passage, fenêtre, mesure de contrôle.</p>
     <div class="bar">${undoBtn()}<button class="btn primary" data-act="newRoom">Commencer une pièce</button></div>`;
 }
 function sidesOf(m, target) {
@@ -1827,8 +1891,8 @@ function wallFiche(m) {
       // contrainte de structure posée à la main : ce mur est sur la même ligne qu'un autre (même façade, même hauteur…)
       const al = D.cons.filter(c => c.kind === "align" && c.walls && c.walls.includes(m.id)), eqc = D.cons.filter(c => c.kind === "equal" && c.walls.includes(m.id));
       h += `<div class="sec"><span class="label">Structure</span><div class="row nowrap">
-        <button class="btn grow ${ui.alignPick === m.id ? "danger" : ""}" data-act="align-pick:${m.id}" style="line-height:1.2">${ui.alignPick === m.id ? "Touche le mur aligné…" : "Aligné avec un autre mur…"}</button>
-        <button class="btn grow ${ui.equalPick === m.id ? "danger" : ""}" data-act="equal-pick:${m.id}" style="line-height:1.2">${ui.equalPick === m.id ? "Touche le mur de même longueur…" : "Même longueur qu'un autre mur…"}</button></div>
+        <button class="btn grow ${ui.alignPick === m.id ? "danger" : ""}" data-act="align-pick:${m.id}" style="line-height:1.2">${ui.alignPick === m.id ? "Touche l'autre mur…" : "Aligné avec…"}</button>
+        <button class="btn grow ${ui.equalPick === m.id ? "danger" : ""}" data-act="equal-pick:${m.id}" style="line-height:1.2">${ui.equalPick === m.id ? "Touche l'autre mur…" : "Même longueur que…"}</button></div>
         ${al.length || eqc.length ? `<div class="chips" style="flex-wrap:wrap">${al.map(c => { const o = meas(c.walls.find(id => id !== m.id)); return `<button class="chip" data-act="unalign:${c.id}">Aligné avec ${o ? mName(o) : "?"} ×</button>`; }).join("")}${eqc.map(c => { const o = meas(c.walls.find(id => id !== m.id)); return `<button class="chip" data-act="unalign:${c.id}">Même longueur que ${o ? mName(o) : "?"} ×</button>`; }).join("")}</div>` : ""}</div>`;
     }
     if (ui.notch) {
@@ -2088,6 +2152,9 @@ function act(name, ...args) {
     case "depthc": ui.customDepth = !ui.customDepth; return renderSheet();
     case "details": ui.details = !ui.details; return refresh();
     case "swing": if (ui.draft) { ui.draft.swing = arg; if (arg2) ui.draft.hinge = arg2; } return refresh();
+    case "add-pick": ui.addPick = arg; ui.sel = null; return refresh();
+    case "add-cancel": ui.addPick = null; return refresh();
+    case "add-on": { const m = meas(arg); if (!m) return; const k = ui.addPick || "door"; ui.addPick = null; startDraft(k, m.id, false); return refresh(); }
     case "pickwall": ui.pickWall = true; renderSheet(); return toast("Touche un mur sur le plan");
     case "cancel-op": ui.draft = null; ui.pickWall = false; ui.details = false; return refresh();
     case "validate": return validateOpening();
