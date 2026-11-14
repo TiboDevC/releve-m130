@@ -1604,10 +1604,14 @@ function validateOpening() {
   const id = (d.type === "door" ? "P" : "F") + D.n[d.type];
   D.openings.push({ id, type: d.type, meas: d.meas, ref: d.ref, pos: d.pos, width: d.width, height: d.height, swing: d.swing, hinge: d.hinge, widthInner: d.widthInner, depth: d.depth, sill: d.sill, pass: null,
     planned: !!(d.typed && (roomOfWall(meas(d.meas)) || {}).status === "sketch") || undefined });
+  // une pièce est déjà dessinée juste derrière ce mur : la porte y donne directement (passage ouvert dans les deux murs)
+  const no = D.openings[D.openings.length - 1], host = roomOfWall(meas(d.meas));
+  let linked = null;
+  if (d.type === "door") { const cands = D.rooms.filter(R => R !== host && twinOf(no, R)); if (cands.length === 1) { no.into = cands[0].id; linked = cands[0]; } }
   ui.draft = null; ui.details = false;
   // la fiche de l'ouverture reste ouverte (porte : « Passer de l'autre côté »)
   ui.sel = { type: "op", id };
-  refresh(); toast(d.type === "door" ? `${d.swing === "none" ? "Passage" : "Porte"} ${id} ajouté${d.swing === "none" ? "" : "e"}` : `Fenêtre ${id} ajoutée`);
+  refresh(); toast(d.type === "door" ? `${d.swing === "none" ? "Passage" : "Porte"} ${id} ajouté${d.swing === "none" ? "" : "e"}${linked ? ` : donne sur ${linked.name}, les deux murs sont ouverts` : ""}` : `Fenêtre ${id} ajoutée`);
 }
 function relinkOpening(o) {
   // recale les contraintes de passage (montants de l'autre côté) sur la nouvelle position de l'ouverture
@@ -2224,7 +2228,8 @@ function closedHTML(r) {
 function sidesOf(m, target) {
   // noms des deux côtés du mur, placés comme sur le plan
   const wg = wallGeom(m), host = roomOfWall(m), [, jr] = target && target.pass ? doorRooms(target) : [null, null];
-  const os = !jr && otherSide(m), other = jr ? jr.name : os && os.room ? os.room.name : "pièce derrière";
+  const into = !jr && target && target.into && room(target.into), os = !jr && !into && otherSide(m);
+  const other = jr ? jr.name : into ? into.name : os && os.room ? os.room.name : "pièce derrière";
   const inName = host ? host.name : "la pièce", hz = Math.abs(wg.u[0]) >= Math.abs(wg.u[1]);
   const arrIn = hz ? (wg.nin[1] > 0 ? "↓" : "↑") : (wg.nin[0] > 0 ? "→" : "←"), arrOut = { "↓": "↑", "↑": "↓", "→": "←", "←": "→" }[arrIn];
   return { wg, hz, inName, other, arrIn, arrOut };
