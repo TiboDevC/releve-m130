@@ -388,7 +388,7 @@ let D = blank(), SOL = null, CHK = null;
 const ui = { view: "releve" };
 function resetUi() {
   Object.assign(ui, { sel: null, wall: null, control: null, height: null, draft: null, pending: null, cote: null, manual: false, toWall: false,
-    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null, thru: null, p2p: null, menu: null });
+    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null, thru: null, p2p: null, menu: null, planOk: false });
 }
 resetUi();
 let view = { cx: 1.5, cy: 1, s: 60 }, undoStack = [], lastBip = null, conn = navigator.bluetooth ? "off" : "na", lastToast = "";
@@ -953,6 +953,7 @@ function drawConstraints(g, P) {
 }
 function drawOpening(g, op, wg, P, o) {
   const c = o.c, og = openingGeom(op, wg), tick = 7;
+  if (op.planned && o.screen) g = el("g", { opacity: .45 }, g);           // ouverture prévue : en retrait, à mesurer
   for (const J of [og.J1, og.J2]) {
     const p = P(...J);
     el("line", { x1: p[0] - og.nin[0] * tick, y1: p[1] - og.nin[1] * tick, x2: p[0] + og.nin[0] * tick, y2: p[1] + og.nin[1] * tick, stroke: op.type === "door" ? c.door : c.ink, "stroke-width": op.type === "door" ? 3 : 2 }, g);
@@ -1046,7 +1047,7 @@ function overlay(P, s) {
       if (m) ray(gr, q, dirv(m.ang), Math.max(70, Math.min(wallLen(m), 3) * s * 0.6), `Mur ${ws.indexOf(m) + 1}/${ws.length}`, "dos au coin " + lab(m.a));
     }
   }
-  if (ui.pending) {
+  if (ui.pending && ui.pending.np) {
     const a = P(...ui.pending.np), b = P(...sol.P.get(ui.pending.target));
     el("circle", { cx: a[0], cy: a[1], r: 6, fill: "none", stroke: c.laser, "stroke-width": 2 }, gr);
     el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: c.laser, "stroke-width": 1.5, "stroke-dasharray": "3 3" }, gr);
@@ -1117,7 +1118,38 @@ function dragPrep(id) {
     }
     return [...seen].some(p => anchored.has(p)) ? null : seen;
   };
-  return { r, cx: comp(0), cy: comp(1), base: new Map(r.contour.map(p => [p, sol.P.get(p).slice()])), before: JSON.stringify(D) };
+  return { id, r, cx: comp(0), cy: comp(1), base: new Map(r.contour.map(p => [p, sol.P.get(p).slice()])), before: JSON.stringify(D) };
+}
+function dragSnap(dg, dx, dy, tol) {
+  // aimantage pendant le glissé : le point s'aligne sur un autre point de la pièce (même x ou même y), ou se pose dessus
+  const B = dg.base.get(dg.id); if (!B) return [dx, dy];
+  const nx = B[0] + dx, ny = B[1] + dy; let bx = null, by = null;
+  for (const [id, q] of dg.base) {
+    if (id === dg.id) continue;
+    if (dg.cx && dg.cx.has(id)) {} else if (Math.abs(q[0] - nx) < tol && (bx == null || Math.abs(q[0] - nx) < Math.abs(bx - nx))) bx = q[0];
+    if (dg.cy && dg.cy.has(id)) {} else if (Math.abs(q[1] - ny) < tol && (by == null || Math.abs(q[1] - ny) < Math.abs(by - ny))) by = q[1];
+  }
+  // posé sur un point voisin du contour : fusion au relâcher
+  const c = dg.r.contour, i = c.indexOf(dg.id), n = c.length; let onto = null;
+  for (const j of [(i + 1) % n, (i - 1 + n) % n]) { if (!dg.r.loop && ((j === (i + 1) % n && i === n - 1) || (j === (i - 1 + n) % n && i === 0))) continue;
+    const q = dg.base.get(c[j]); if (q && Math.hypot(q[0] - nx, q[1] - ny) < tol * 1.5) onto = c[j]; }
+  return [bx != null ? bx - B[0] : dx, by != null ? by - B[1] : dy, onto];
+}
+function mergeOnto(r, id, onto) {
+  // un point de croquis posé sur son voisin : les deux ne font plus qu'un (le petit mur entre eux disparaît)
+  const c = r.contour, i = c.indexOf(id), n = c.length; if (i < 0 || n < 4 || !onto) return false;
+  {
+    const k = onto;
+    const w = edgeMeas(id, k); if (!w || w.obs.length || isJamb(id)) return false;
+    pushUndo();
+    D.meas = D.meas.filter(x => x !== w);
+    for (const o of D.openings.filter(o => o.meas === w.id)) removeOpening(o);
+    for (const m of D.meas) { if (m.a === id) m.a = k; if (m.b === id) m.b = k; }
+    for (const cn of D.cons) for (const f of ["a", "b", "p"]) if (cn[f] === id) cn[f] = k;
+    D.cons = D.cons.filter(cn => !(cn.a && cn.a === cn.b) && !(cn.walls && cn.walls.includes(w.id)));
+    r.contour = c.filter(x => x !== id); D.pts = D.pts.filter(p => p.id !== id);
+    SOL = null; return lab(k);
+  }
 }
 function dragApply(dg, dx, dy) {
   const pos = new Map([...dg.base].map(([k, v]) => [k, v.slice()]));
@@ -1154,7 +1186,7 @@ svg.addEventListener("pointermove", e => {
   const dx = e.clientX - drag.start[0], dy = e.clientY - drag.start[1];
   if (drag.type === "tap") {
     if (Math.hypot(dx, dy) < 6) return;
-    const r = drag.t.room && room(drag.t.room), p = drag.t.pt && pt(drag.t.pt), dg = ui.view === "releve" && p && !ui.sel && !ui.draft ? dragPrep(p.id) : null;
+    const r = drag.t.room && room(drag.t.room), p = drag.t.pt && pt(drag.t.pt), dg = ui.view === "releve" && p && (!ui.sel || ui.sel.type === "pt") && !ui.draft ? dragPrep(p.id) : null;
     if (dg) drag = Object.assign(drag, { type: "sk", dg, moved: false });
     else if (ui.view === "maison" && r) {
       // déplacer un groupe de pièces sans lien avec le reste
@@ -1166,7 +1198,8 @@ svg.addEventListener("pointermove", e => {
   if (drag.type === "pan") { view.cx = drag.orig[0] - dx / view.s; view.cy = drag.orig[1] - dy / view.s; return render(); }
   if (drag.type === "sk") {
     if (!drag.moved) { undoStack.push(drag.dg.before); drag.moved = true; }
-    dragApply(drag.dg, snap5(dx / view.s), snap5(dy / view.s)); return render();
+    const [sx, sy, onto] = dragSnap(drag.dg, snap5(dx / view.s), snap5(dy / view.s), 14 / view.s);
+    drag.onto = onto; if (!onto) dragApply(drag.dg, sx, sy); return render();
   }
   if (drag.type === "move") {
     if (!drag.moved) { undoStack.push(drag.before); drag.moved = true; }
@@ -1181,6 +1214,11 @@ function endPtr(e) {
   if (!ptrs.has(e.pointerId)) return;
   ptrs.delete(e.pointerId);
   if (drag && drag.type === "tap" && e.type === "pointerup") handleTap(drag.t);
+  if (drag && drag.type === "sk" && drag.moved && drag.onto) {
+    // on repart de l'état d'avant le glissé : l'annulation ramène exactement la forme d'origine
+    undoStack.pop(); D = JSON.parse(drag.dg.before); SOL = null;
+    const k = mergeOnto(room(drag.dg.r.id), drag.dg.id, drag.onto); if (k) toast(`Point posé sur ${k} : le petit mur a disparu`);
+  }
   if (drag && (drag.type === "move" || drag.type === "sk") && drag.moved) refresh();
   drag = null;
   if (ptrs.size === 1) { const [p] = ptrs.values(); drag = { type: "pan", start: p, orig: [view.cx, view.cy] }; }
@@ -1206,7 +1244,7 @@ function handleTap(t) {
     const p = pt(t.pt); if (!p) return;
     if (!r || p.room !== r.id) return toast(`Point ${p.lab} : il appartient à « ${roomName(p.room)} », verrouillé`);
     if (ui.draft) return toast("Termine ou annule la porte / fenêtre en cours");
-    return toast(r.status === "sketch" && !D.nav.trace ? `Point ${p.lab} : fais-le glisser pour ajuster la forme` : `Point ${p.lab}`);
+    ui.sel = { type: "pt", id: p.id }; ui.armDel = null; return refresh();
   }
   if (t.meas) {
     const m = meas(t.meas); if (!m) return;
@@ -1267,7 +1305,7 @@ function onMeasure(v) {
     const st = d.meas && curStep(d);
     if (!d.meas) return refuse("Bip ignoré : touche d'abord le mur sur le plan");
     if (!st) return refuse(d.type === "window" ? "Bip ignoré : position et largeur sont faites. Valide, ou ouvre les détails." : "Bip ignoré : tout est mesuré, valide l'ouverture");
-    d[st.k] = v; d.step = null; msg = `${fmt(v)} m → ${st.t.toLowerCase()}`;
+    d[st.k] = v; d.step = null; if (ui.typedNext) d.typed = true; msg = `${fmt(v)} m → ${st.t.toLowerCase()}`;
   } else if (ui.sel) {
     return refuse("Bip ignoré : une fiche est ouverte. Ferme-la (×) pour mesurer.");
   } else {
@@ -1275,6 +1313,10 @@ function onMeasure(v) {
     if (!r) return refuse("Bip ignoré : commence d'abord une pièce");
     if (r.status === "sketch" && D.nav.trace) { pushUndo(); msg = traceBip(v); if (msg == null) { undoStack.pop(); return false; } }
     else if (r.status === "sketch") return refuse("Bip ignoré : dessine d'abord la structure, puis « Passer aux mesures » (ou « Tracer en mesurant »)");
+    else if (r.status === "measure" && !ui.planOk && (m => m && m.plan && !m.obs.length && Math.abs(v - m.sketch) > 0.2)(currentWall(r))) {
+      const m = currentWall(r); ui.pending = { kind: "plan", v, m: m.id }; refresh();
+      toast(`${fmt(v)} m au lieu de ${fmt(m.sketch, 2)} prévus : vérifie le mur`); return true;
+    }
     else if (r.status === "measure") { pushUndo(); msg = measureBip(v); if (msg == null) { undoStack.pop(); return refuse("Bip ignoré : aucun mur en cours"); } }
     else return refuse(`Bip ignoré : ${r.name} est fermée. Touche un mur pour une mesure de contrôle.`);
   }
@@ -1349,7 +1391,7 @@ function sketchArrow(dir) {
 function addSketchWall(r, dir, L, extra) {
   const c = r.contour, last = c[c.length - 1], P = Pof(last), u = dirv(dir), np = [P[0] + u[0] * L, P[1] + u[1] * L];
   const F = Pof(c[0]);
-  if (c.length >= 3 && roomWalls(r).length >= 2 && Math.hypot(np[0] - F[0], np[1] - F[1]) < 0.05) {
+  if (c.length >= 3 && roomWalls(r).length >= 2 && Math.hypot(np[0] - F[0], np[1] - F[1]) < SNAP) {
     addWall(last, c[0], dir, L, extra); r.loop = true;
     return `Forme fermée · ${roomWalls(r).length} murs`;
   }
@@ -1366,7 +1408,7 @@ function toWall(dir, ded) {
   let best = null;
   if (c.length >= 3 && walls >= 2) {
     const q = sol.P.get(c[0]), t = (q[0] - st[0]) * u[0] + (q[1] - st[1]) * u[1], off = Math.abs((q[0] - st[0]) * -u[1] + (q[1] - st[1]) * u[0]);
-    if (t > 0.05 && off < 0.03) best = { t, pt: c[0] };
+    if (t > 0.05 && off < SNAP) best = { t, pt: c[0] };
   }
   // d'abord un mur réellement croisé ; à défaut, le prolongement d'un mur de la pièce
   let ext = null;
@@ -1400,6 +1442,7 @@ function toWall(dir, ded) {
   lastBip = null; refresh(); toast(msg); follow();
 }
 function prevOpposite(r, a) { const p = lastWallDir(r); return p != null && norm(p + 180) === norm(a); }
+const SNAP = 0.35;            // aimantage du croquis : un écart plus petit est absorbé par les longueurs de croquis
 const axisDir = (x, y) => Math.abs(x) >= Math.abs(y) ? (x > 0 ? 0 : 180) : (y > 0 ? 90 : 270);
 function closeShape() {
   const r = curRoom(); if (!r || r.status !== "sketch" || r.loop) return;
@@ -1411,13 +1454,14 @@ function closeShape() {
   // à côté du montant, que l'ajustement règle), au lieu de faire du montant un coin
   const J2 = n > 1 && isJamb(first) && isJamb(c[1]) && !edgeMeas(first, c[1]) ? Pof(c[1]) : null;
   const dd = J2 ? axisDir(J2[0] - F[0], J2[1] - F[1]) : null;
-  if (dd != null && (Math.abs(dx) < 0.02 || Math.abs(dy) < 0.02) && axisDir(dx, dy) % 180 !== dd % 180) {
+  const near = Math.min(Math.abs(dx), Math.abs(dy)) < SNAP && Math.max(Math.abs(dx), Math.abs(dy)) > SNAP;
+  if (dd != null && near && axisDir(dx, dy) % 180 !== dd % 180) {
     const u = dirv(dd), C = [F[0] - u[0] * 0.1, F[1] - u[1] * 0.1], q = addPoint(C[0], C[1], r.id);
     addWall(last, q.id, axisDir(dx, dy), Math.hypot(dx, dy));
     addWall(q.id, first, dd, 0.1, { ded: true });
     c.push(q.id);
-  } else if (Math.abs(dx) < 0.02 || Math.abs(dy) < 0.02) {
-    const dir = axisDir(dx, dy), len = Math.hypot(dx, dy);
+  } else if (near) {
+    const dir = axisDir(dx, dy), len = Math.max(Math.abs(dx), Math.abs(dy));
     if (prev === dir && lm && !lm.obs.length && !isJamb(last) && n > 3) {
       // le dernier mur continue jusqu'au point de départ : pas de coin inutile
       if (lm.b === last) lm.b = first; else lm.a = first;
@@ -1531,13 +1575,29 @@ function startDraft(type, mid, passage) {
 }
 function validateOpening() {
   const d = ui.draft; if (!d || !d.meas || d.pos == null || d.width == null) return toast("Il faut la position et la largeur");
+  if (d.editOf) {
+    // ouverture prévue, mesurée sur place : on remplace position et largeur, les liens avec l'autre pièce suivent
+    const o = opening(d.editOf); if (!o) return;
+    pushUndo(); Object.assign(o, { ref: d.ref, pos: d.pos, width: d.width }); if (d.height) o.height = d.height; o.planned = false;
+    relinkOpening(o); ui.draft = null; ui.sel = { type: "op", id: o.id }; refresh(); return toast(`${o.id} mesurée sur place`);
+  }
   pushUndo(); D.n[d.type]++;
   const id = (d.type === "door" ? "P" : "F") + D.n[d.type];
-  D.openings.push({ id, type: d.type, meas: d.meas, ref: d.ref, pos: d.pos, width: d.width, height: d.height, swing: d.swing, hinge: d.hinge, widthInner: d.widthInner, depth: d.depth, sill: d.sill, pass: null });
+  D.openings.push({ id, type: d.type, meas: d.meas, ref: d.ref, pos: d.pos, width: d.width, height: d.height, swing: d.swing, hinge: d.hinge, widthInner: d.widthInner, depth: d.depth, sill: d.sill, pass: null,
+    planned: !!(d.typed && (roomOfWall(meas(d.meas)) || {}).status === "sketch") || undefined });
   ui.draft = null; ui.details = false;
   // la fiche de l'ouverture reste ouverte (porte : « Passer de l'autre côté »)
   ui.sel = { type: "op", id };
   refresh(); toast(d.type === "door" ? `${d.swing === "none" ? "Passage" : "Porte"} ${id} ajouté${d.swing === "none" ? "" : "e"}` : `Fenêtre ${id} ajoutée`);
+}
+function relinkOpening(o) {
+  // recale les contraintes de passage (montants de l'autre côté) sur la nouvelle position de l'ouverture
+  const m = meas(o.meas), wg = m && wallGeom(m), c = D.cons.find(x => x.kind === "link" && x.op === o.id), cd = D.cons.find(x => x.kind === "door" && x.op === o.id);
+  if (!wg || !c || !cd) { SOL = null; return; }
+  const [s1, s2] = jambs(o, solve().res.get(m.id).kept), left = [wg.nin[1], -wg.nin[0]], u = dirv(m.ang);
+  const sL = left[0] * u[0] + left[1] * u[1] > 0 ? s2 : s1, sR = sL === s2 ? s1 : s2;
+  const out = [-wg.nin[0], -wg.nin[1]], o90 = [-u[1], u[0]], side = o90[0] * out[0] + o90[1] * out[1] > 0 ? 1 : -1;
+  c.a = m.a; c.u = u; c.o = side; c.s = sL; cd.u = u; cd.o = side; cd.s = sR - sL; SOL = null;
 }
 function passDoor(o) {
   if (!o || o.type !== "door") return;
@@ -2075,16 +2135,23 @@ function welcomeHTML() {
     <button class="btn primary" data-act="newRoom">Commencer une pièce</button>
     <div class="row" style="flex-wrap:nowrap"><button class="btn grow" data-act="house">Voir la maison</button><button class="btn grow" data-act="open-json">Ouvrir…</button></div>`;
 }
+function planRow(m) {
+  // longueur prévue (préparation au bureau) : guide le dessin, reste « à mesurer »
+  return `<div class="row nowrap"><span class="small" style="flex:none;color:var(--soft)">Prévu ${mName(m)}</span><input class="field" id="planIn" data-plan="${m.id}" inputmode="decimal" placeholder="${m.plan ? fmt(m.sketch, 2) : "ex. 3,05"}" style="flex:1;min-width:60px" aria-label="Longueur prévue en mètres"><button class="btn" data-act="plan-len:${m.id}">OK</button></div>`;
+}
 function sketchHTML(r) {
   const c = r.contour, last = c[c.length - 1], n = roomWalls(r).length, d = norm(D.nav.dir);
   const arrow = (a, ch, l) => `<button class="${d === a ? "on" : ""}" data-act="arrow:${a}" aria-label="${l}">${ch}</button>`;
   let h = segHTML(r);
   h += r.loop ? `<div class="lead"><span class="big">Forme fermée · ${n} murs</span><span class="hint">Fais glisser un point sur le plan pour que la forme ressemble ; touche un mur pour un décroché ou un angle non droit.</span></div>`
     : `<p class="hint"><b style="color:var(--ink)">Murs depuis le point ${lab(last)}</b> · chaque flèche ajoute un mur (≈ ${fmt(DEF, 1)} m). Glisse un point du plan pour ajuster.</p>`;
+  const lm = !r.loop && c.length > 1 ? edgeMeas(c[c.length - 2], last) : null;
+  if (lm && !lm.obs.length) h += planRow(lm);
   if (!r.loop) h += `<div class="aim"><div class="pad"><span></span>${arrow(270, "↑", "Mur vers le haut du plan")}<span></span>${arrow(180, "←", "Mur vers la gauche du plan")}<span class="mid">${ui.toWall ? "jusqu'au mur" : "mur"}</span>${arrow(0, "→", "Mur vers la droite du plan")}<span></span>${arrow(90, "↓", "Mur vers le bas du plan")}<span></span></div>
     <div class="toggle"><button class="${ui.toWall ? "on" : ""}" data-act="toWall">Jusqu'au mur d'en face<small>${ui.toWall ? "choisis la flèche…" : "s'arrête sur un mur de cette pièce"}</small></button>
       <button data-act="close-shape" ${n < 2 ? "disabled" : ""}>Fermer la forme<small>relie au point ${lab(c[0])}</small></button></div></div>`;
-  if (!r.loop) h += `<p class="small">Ferme la forme pour passer aux mesures.</p>`;
+  if (r.loop) h += `<p class="small">Touche un mur pour taper sa longueur prévue (relevé préparé d'après un plan).</p>`;
+  if (!r.loop) h += `<p class="small">Ferme la forme pour passer aux mesures. Les longueurs prévues restent en pointillés, à mesurer.</p>`;
   h += `<div class="row nowrap"><button class="btn grow" data-act="trace:1">Tracer en mesurant</button><button class="btn grow" data-act="newRoom">Autre pièce</button></div>
     <div class="bar">${undoBtn()}<button class="btn primary" data-act="go-measure" ${r.loop ? "" : "disabled"}>Passer aux mesures · ${n} mur${n > 1 ? "s" : ""}</button></div>`;
   return h;
@@ -2105,7 +2172,7 @@ function measureHTML(r) {
     const dn = dirName(m.ang);
     h += `<div class="card"><div class="pict">${pictAim(norm(m.ang), "wall")}</div><div class="cardtxt">${waitLine()}<span class="big">Mur ${k} sur ${ws.length} · ${mName(m)}</span>
       <span class="hint">${isJamb(m.a) ? `Dos du M130 contre le montant de la porte (point ${lab(m.a)}), vise ${dn} le long du mur jusqu'au coin ${lab(m.b)}.` : `Dos du M130 dans le coin ${lab(m.a)}, vise ${dn} le long du mur.`}
-      ${m.obs.length ? `Déjà mesuré : ${m.obs.map(x => fmt(x)).join(" / ")} m.` : `Croquis ≈ ${fmt(wallLen(m), 2)} m.`}</span></div></div>${manualRow()}`;
+      ${m.obs.length ? `Déjà mesuré : ${m.obs.map(x => fmt(x)).join(" / ")} m.` : m.plan ? `Prévu ${fmt(m.sketch, 2)} m.` : `Croquis ≈ ${fmt(wallLen(m), 2)} m.`}</span></div></div>${manualRow()}`;
   }
   h += `<div class="pills" aria-label="Avancement des murs">${ws.map(w => { const st = w === m ? "cur" : w.obs.length ? "ok" : w.ded ? "ded" : "";
     return `<button class="pill ${st}" data-act="wall:${w.id}">${w === m ? "● " : w.obs.length ? "✓ " : ""}${mName(w)}${w.ded && !w.obs.length ? " · déduit" : ""}</button>`; }).join("")}</div>
@@ -2242,6 +2309,55 @@ function jambPiece(m) {
   ui.sel = null; refresh();
   toast(`Bout de mur ajouté à côté de ${jc.op} : sa longueur vient des autres mesures`);
 }
+function ptNeighbours(p) {
+  const r = room(p.room), c = r ? r.contour : [], i = c.indexOf(p.id), n = c.length;
+  if (!r || i < 0) return { r, i };
+  return { r, i, prev: i > 0 || r.loop ? c[(i - 1 + n) % n] : null, next: i < n - 1 || r.loop ? c[(i + 1) % n] : null };
+}
+function ptFiche(p) {
+  const { r, prev, next } = ptNeighbours(p), jamb = isJamb(p.id);
+  const both = prev && next && edgeMeas(prev, p.id) && edgeMeas(p.id, next);
+  let h = `<div class="fhead"><div class="cardtxt"><span class="label">Point${r ? " · " + esc(r.name) : ""}</span><span class="big">Point ${p.lab}</span></div>${closeX}</div>
+    <span class="hint">${r && r.status === "sketch" && !D.nav.trace ? "Fais-le glisser sur le plan pour ajuster la forme. Posé sur un point voisin, il fusionne avec lui." : "Coin de la pièce."}</span>`;
+  if (jamb) return h + `<p class="small">C'est un montant de porte : il part avec la porte (fiche de la porte, « Supprimer »).</p>`;
+  if (r && r.loop && r.contour.length <= 3) return h + `<p class="small">Une pièce garde au moins 3 coins.</p>`;
+  h += `<p class="small">${both ? `Les murs ${lab(prev)} → ${p.lab} et ${p.lab} → ${lab(next)} deviennent un seul mur ${lab(prev)} → ${lab(next)}, à mesurer ; leurs mesures sont retirées.` : "Le mur qui finit à ce point part avec lui."}</p>
+    <div class="bar"><button class="btn danger grow" data-act="delpt:${p.id}">${ui.armDel === p.id ? (both ? `Confirmer : relier ${lab(prev)} à ${lab(next)}` : "Confirmer la suppression") : `Supprimer le point ${p.lab}`}</button></div>`;
+  return h;
+}
+function deletePoint(id) {
+  const p = pt(id); if (!p) return;
+  const { r, i, prev, next } = ptNeighbours(p); if (!r || i < 0) return toast("Ce point n'est pas sur le contour d'une pièce");
+  if (isJamb(id)) return toast("Montant de porte : supprime la porte depuis sa fiche");
+  if (r.loop && r.contour.length <= 3) return toast("Une pièce garde au moins 3 coins");
+  const w1 = prev && edgeMeas(prev, id), w2 = next && edgeMeas(id, next);
+  pushUndo();
+  const dropMeas = ms => { for (const m of ms) { for (const o of D.openings.filter(o => o.meas === m.id)) removeOpening(o); D.cons = D.cons.filter(cn => cn.w !== m.id && !(cn.walls && cn.walls.includes(m.id))); } D.meas = D.meas.filter(x => !ms.includes(x)); };
+  let msg;
+  if (w1 && w2) {
+    // les deux murs deviennent un seul mur prev → next (droit si presque aligné, sinon en biais)
+    const Q = Pof(prev), R = Pof(next), dx = R[0] - Q[0], dy = R[1] - Q[1], straight = Math.min(Math.abs(dx), Math.abs(dy)) < SNAP;
+    const ang = straight ? axisDir(dx, dy) : angOf([dx, dy]), L = straight ? Math.max(Math.abs(dx), Math.abs(dy)) : Math.hypot(dx, dy);
+    const nw = addWall(prev, next, ang, L), u = dirv(ang), keep = [];
+    for (const o of D.openings.filter(o => o.meas === w1.id || o.meas === w2.id)) {
+      const w = o.meas === w1.id ? w1 : w2, wg = wallGeom(w), og = wg && openingGeom(o, wg);
+      if (!og || !straight || norm(w.ang) % 180 !== ang % 180) continue;
+      const t1 = (og.J1[0] - Q[0]) * u[0] + (og.J1[1] - Q[1]) * u[1], t2 = (og.J2[0] - Q[0]) * u[0] + (og.J2[1] - Q[1]) * u[1];
+      Object.assign(o, { meas: nw.id, ref: "a", pos: r3(Math.min(t1, t2)), width: r3(Math.abs(t2 - t1)) }); keep.push(o);
+    }
+    dropMeas([w1, w2]); SOL = null;
+    for (const o of keep) relinkOpening(o);
+    msg = `Point ${p.lab} supprimé : mur ${lab(prev)} → ${lab(next)}${straight ? "" : " (en biais)"}, à mesurer`;
+  } else {
+    dropMeas([w1 || w2].filter(Boolean));
+    msg = `Point ${p.lab} supprimé`;
+  }
+  D.meas = D.meas.filter(m => m.a !== id && m.b !== id);                        // cotes et mesures point à point qui y partaient
+  D.cons = D.cons.filter(cn => cn.a !== id && cn.b !== id && cn.p !== id);
+  r.contour.splice(r.contour.indexOf(id), 1); D.pts = D.pts.filter(x => x.id !== id);
+  if (r.status === "closed") r.status = "measure";
+  pruneOrphans(); ui.sel = null; ui.armDel = null; SOL = null; refresh(); toast(msg);
+}
 function delLabel(m) {
   const r = m.kind === "wall" ? roomOfWall(m) : null; if (!r) return "Confirmer la suppression";
   const es = roomEdges(r), i = es.findIndex(e => e.m === m);
@@ -2286,6 +2402,7 @@ function wallFiche(m) {
         ${ui.thickPick === m.id ? `<div class="row"><span class="small">Épaisseur connue :</span>${[0.07, 0.1, 0.15, 0.2].map(v => `<button class="mini" data-act="part-thick:${m.id}:${v}">${Math.round(v * 100)} cm</button>`).join("")}</div>` : ""}</div>`;
     }
   }
+  if (m.kind === "wall" && !m.obs.length) h += `<div class="sec"><span class="label">Longueur prévue${m.plan ? ` · ${fmt(m.sketch, 2)} m` : ""}</span>${planRow(m)}<p class="small">Pour préparer d'après un plan : la longueur guide le dessin et reste à mesurer sur place.</p></div>`;
   const jc = jambCorner(m);
   if (jc) h += `<div class="sec"><span class="label">Montant de porte</span><span class="hint">Ce mur s'arrête pile au montant ${lab(jc.J)} de ${jc.op}, comme si la porte touchait le coin. S'il reste un bout de mur entre la porte et le coin :</span>
     <button class="btn" data-act="jamb-piece:${m.id}">Ajouter le bout de mur à côté de ${jc.op}</button></div>`;
@@ -2308,6 +2425,7 @@ function opFiche(o) {
   const [host, jr] = doorRooms(o), other = jr ? (D.cur === jr.id ? host : jr) : null;
   let h = `<div class="fhead"><div class="cardtxt"><span class="label">${t} ${o.id}</span><span class="big">${fmt(o.width, 2)} m de large</span></div>${closeX}</div>`;
   h += `<span class="hint">Sur le mur ${m ? mName(m) : "?"}, à ${fmt(o.pos, 2)} m du coin ${m ? lab(o.ref === "b" ? m.b : m.a) : "?"}${o.height ? ` · ${fmt(o.height, 2)} m de haut` : ""}${o.sill ? ` · allège ${fmt(o.sill, 2)} m` : ""}${o.depth ? ` · embrasure ${Math.round(o.depth * 100)} cm` : ""}.</span>`;
+  if (o.planned) h += `<div class="warnbox" style="border-color:var(--line)"><span class="hint"><b>Prévue</b> d'après le plan préparé : position et largeur à mesurer sur place.</span><button class="btn primary" data-act="op-measure:${o.id}">Mesurer ${isDoor ? "cette porte" : "cette fenêtre"} sur place</button></div>`;
   if (isDoor && m) h += swingRow(o, "opswing");
   if (o.pass) h += `<div class="sec"><span class="label">Épaisseur du mur</span><div class="row"><button class="mini ${!o.pass.known ? "on" : ""}" data-act="thick:auto" style="font-family:var(--f-ui)">Calculée</button>
       ${[[0.07, "7"], [0.1, "10"], [0.2, "20"]].map(([v, l]) => `<button class="mini ${o.pass.known && Math.abs(o.pass.t - v) < 1e-6 ? "on" : ""}" data-act="thick:${v}">${l} cm</button>`).join("")}</div>
@@ -2355,6 +2473,11 @@ function coteHTML() {
 }
 function mergeHTML() {
   const p = ui.pending;
+  if (p.kind === "plan") { const m = meas(p.m), d = p.v - m.sketch;
+    return `<div class="warnbox"><b>${fmt(p.v)} m, alors que ${mName(m)} est prévu à ${fmt(m.sketch, 2)} m (${sgn(d)} cm)</b>
+    <p class="small">Plus de 20 cm d'écart : c'est peut-être un autre mur, ou le plan préparé était faux.</p>
+    <button class="btn primary" data-act="plan-yes">C'est bien ${mName(m)} : enregistrer</button>
+    <button class="btn" data-act="plan-no">Oublier ce bip</button></div>`; }
   return `<div class="warnbox"><b>Ce bip tombe à ${cm(p.d)} du point ${lab(p.target)}</b>
     <p class="small">Si c'est le point de départ de la pièce, la forme se ferme et l'écart est réparti. Sinon, un nouveau point est créé.</p>
     <button class="btn primary" data-act="merge">C'est le point ${lab(p.target)}</button>
@@ -2438,6 +2561,7 @@ function renderSheet() {
   else if (ui.draft) h = openingHTML();
   else if (ui.sel && ui.sel.type === "meas" && meas(ui.sel.id)) h = wallFiche(meas(ui.sel.id));
   else if (ui.sel && ui.sel.type === "op" && opening(ui.sel.id)) h = opFiche(opening(ui.sel.id));
+  else if (ui.sel && ui.sel.type === "pt" && pt(ui.sel.id)) h = ptFiche(pt(ui.sel.id));
   else if (ui.sel && ui.sel.type === "room" && room(ui.sel.id)) h = roomFiche(room(ui.sel.id));
   else {
     ui.sel = null; ui.control = null; ui.height = null;
@@ -2485,7 +2609,7 @@ function renderHeader() {
 /* ---------- actions ---------- */
 function act(name, ...args) {
   const [arg, arg2, arg3, arg4, arg5] = args, nav = D.nav;
-  if (!["delmeas", "delop", "delroom", "newhouse"].includes(name)) ui.armDel = null;
+  if (!["delmeas", "delop", "delroom", "newhouse", "delpt", "proj-del"].includes(name)) ui.armDel = null;
   const keepView = () => { const v = ui.view; resetUi(); ui.view = v; };
   switch (name) {
     case "zin": return zoomAt(1.4);
@@ -2498,7 +2622,7 @@ function act(name, ...args) {
     case "checks": ui.view = "maison"; resetUi(); refresh(); return fit();
     case "undo": return undo();
     case "manual": ui.manual = !ui.manual; renderSheet(); if (ui.manual) { const i = $("#manIn"); if (i && i.focus) i.focus(); } return;
-    case "manual-ok": { const v = parseLen(arg != null ? String(arg) : (($("#manIn") || {}).value || "")); if (v == null || v < 0) return toast("Mesure non comprise, écris par ex. 3,42"); return onMeasure(v); }
+    case "manual-ok": { const v = parseLen(arg != null ? String(arg) : (($("#manIn") || {}).value || "")); if (v == null || v < 0) return toast("Mesure non comprise, écris par ex. 3,42"); ui.typedNext = true; const ok = onMeasure(v); ui.typedNext = false; return ok; }
     case "all-sugg": ui.allSugg = true; return renderSheet();
     case "hist": ui.hist = !ui.hist; return renderSheet();
     case "newRoom": return newRoom();
@@ -2520,7 +2644,11 @@ function act(name, ...args) {
     case "extend": return toWall(nav.dir, true);
     case "drag": {
       const p = D.pts.find(p => p.lab === arg), dg = p && dragPrep(p.id); if (!dg) return toast("Ce point ne se déplace pas");
-      undoStack.push(dg.before); if (!dragApply(dg, +arg2 || 0, +arg3 || 0)) { undoStack.pop(); return toast("La forme s'inverserait"); } return refresh();
+      const [sx, sy, onto] = dragSnap(dg, +arg2 || 0, +arg3 || 0, 0.05);
+      if (onto) { const k = mergeOnto(dg.r, dg.id, onto); refresh(); return k ? toast(`Point posé sur ${k} : le petit mur a disparu`) : toast("Fusion impossible (mur mesuré ou montant de porte)"); }
+      undoStack.push(dg.before);
+      if (!dragApply(dg, sx, sy)) { undoStack.pop(); return toast("La forme s'inverserait"); }
+      return refresh();
     }
     case "deduce": return deduce();
     case "wall": ui.wall = arg; return refresh();
@@ -2552,6 +2680,19 @@ function act(name, ...args) {
     case "details": ui.details = !ui.details; return refresh();
     case "swing": if (ui.draft) { ui.draft.swing = arg; if (arg2) ui.draft.hinge = arg2; } return refresh();
     case "thru": ui.thru = arg; return renderSheet();
+    case "plan-len": {
+      const m = meas(arg), v = parseLen((($("#planIn") || {}).value || "") || (arg2 != null ? String(arg2) : ""));
+      if (!m || m.obs.length) return toast("Ce mur est déjà mesuré");
+      if (v == null || !(v > 0.05)) return toast("Longueur non comprise, écris par ex. 3,05");
+      pushUndo(); m.sketch = r3(v); m.plan = true; SOL = null;
+      // les points suivent : positions recalculées depuis les longueurs de croquis
+      const sol = solve(); for (const p of D.pts) { const q = sol.P.get(p.id); if (q) { p.x = q[0]; p.y = q[1]; } } SOL = null;
+      refresh(); return toast(`${mName(m)} : prévu ${fmt(v, 2)} m (à mesurer sur place)`);
+    }
+    case "plan-yes": { const p = ui.pending; if (!p || p.kind !== "plan") return; ui.pending = null; ui.wall = p.m; ui.planOk = true; onMeasure(p.v); ui.planOk = false; return; }
+    case "plan-no": ui.pending = null; refresh(); return toast("Bip oublié");
+    case "delpt": if (ui.armDel !== arg) { ui.armDel = arg; return renderSheet(); } return deletePoint(arg);
+    case "op-measure": { const o = opening(arg); if (!o) return; startDraft(o.type, o.meas, o.swing === "none"); Object.assign(ui.draft, { editOf: o.id, ref: o.ref, swing: o.swing, hinge: o.hinge }); return refresh(); }
     case "menu": { const was = ui.menu; ui.menu = was ? null : "main"; ui.armDel = null; sheetMin = false; return refresh(); }
     case "menu-back": ui.menu = "main"; ui.armDel = null; return refresh();
     case "menu-projects": ui.menu = "projects"; return refresh();
@@ -2631,6 +2772,7 @@ document.addEventListener("change", e => {
 });
 document.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target.id === "manIn") act("manual-ok");
+  if (e.key === "Enter" && e.target.id === "planIn") act("plan-len", e.target.dataset.plan);
   if (e.key === "Enter" && e.target.id === "nameIn") act("name-ok");
   if (e.key === "Enter" && e.target.id === "angIn") act("angle-ok");
   if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.target.matches("input")) { e.preventDefault(); undo(); }
