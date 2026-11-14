@@ -189,6 +189,9 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 .nowrap { flex-wrap: nowrap; }
 
 /* Panneau réductible (plan seul) */
+.hrow { display: grid; grid-template-columns: 82px 54px 1fr; gap: 6px; font-size: 12.5px; align-items: baseline; padding: 3px 0; border-bottom: 1px solid var(--line); }
+.hrow .t { color: var(--muted); font-family: var(--f-num); font-size: 11.5px; } .hrow b { font-family: var(--f-num); font-weight: 600; } .hrow .w { color: var(--soft); } .hrow i { color: var(--laser-t); font-style: normal; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .grab { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 22px; margin: -8px 0 -4px; padding: 0; border: 0; background: none; flex: none; }
 .grab i { width: 38px; height: 4px; border-radius: 2px; background: var(--dim); flex: none; }
 .grab.open { height: 40px; margin: 0; justify-content: flex-start; font-size: 13px; color: var(--soft); }
@@ -351,7 +354,7 @@ let D = blank(), SOL = null, CHK = null;
 const ui = { view: "releve" };
 function resetUi() {
   Object.assign(ui, { sel: null, wall: null, control: null, height: null, draft: null, pending: null, cote: null, manual: false, toWall: false,
-    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null, thru: null });
+    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null, thru: null, p2p: null });
 }
 resetUi();
 let view = { cx: 1.5, cy: 1, s: 60 }, undoStack = [], lastBip = null, conn = navigator.bluetooth ? "off" : "na", lastToast = "";
@@ -467,6 +470,12 @@ function equations(over, opt) {
   // opt : { drop: Set d'ids de contraintes ignorées, relax: Set de portes dont la position le long du mur est libérée } (diagnostic)
   const eqs = [], drop = opt && opt.drop, relax = opt && opt.relax;
   for (const m of D.meas) {
+    if (m.kind === "p2p") {
+      // distance de point à point (diagonale possible) : équation non linéaire, linéarisée à chaque passe de lsq
+      // (+ 1 cm d'incertitude : en biais, le dos du M130 ne rentre pas tout à fait dans le coin)
+      m.obs.forEach((L, k) => eqs.push({ a: m.a, b: m.b, ax: -1, dist: L, val: L, v: SIG(L) ** 2 + 0.01 ** 2, m: m.id, k }));
+      continue;
+    }
     const [c, s] = dirv(m.ang);
     if (!m.obs.length) {
       // mur non mesuré : sa direction, plus sa longueur de croquis comme observation très faible
@@ -538,17 +547,25 @@ function lsq(eqs, idx) {
   const fixed = D.pts.map((_, i) => find(i) === i);
   const map = new Array(n).fill(-1), un = [];
   for (let i = 0; i < n; i++) if (!fixed[i]) { map[i] = un.length; un.push(i); }
-  const pos = D.pts.map(p => [p.x, p.y]), h = eqs.map(() => 1);
-  for (let it = 0; it < 5; it++) {
+  const pos = D.pts.map(p => [p.x, p.y]), h = eqs.map(() => 1), hasDist = eqs.some(e => e.dist != null);
+  for (let it = 0; it < (hasDist ? 12 : 5); it++) {
+    const before = hasDist ? pos.map(p => p.slice()) : null;
     for (const ax of [0, 1]) {
       if (!un.length) break;
       const M = un.length, A = Array.from({ length: M }, () => new Array(M).fill(0)), bv = new Array(M).fill(0);
       eqs.forEach((e, q) => {
-        if (e.ax !== ax) return;
-        const w = h[q] / e.v, T0 = terms[q];
+        let val = e.val, T0 = terms[q], v = e.v;
+        if (e.dist != null) {
+          // u·(B − A) = L, avec u la direction actuelle ; sur cet axe, l'autre composante est prise à sa valeur actuelle
+          const ia = idx.get(e.a), ib = idx.get(e.b), d = [pos[ib][0] - pos[ia][0], pos[ib][1] - pos[ia][1]], Lc = Math.hypot(d[0], d[1]);
+          if (Lc < 1e-6) return;
+          const u = [d[0] / Lc, d[1] / Lc], o = 1 - ax; if (Math.abs(u[ax]) < 0.05) return;
+          val = e.dist - u[o] * d[o]; T0 = [[ia, -u[ax]], [ib, u[ax]]];
+        } else if (e.ax !== ax) return;
+        const w = h[q] / v;
         for (const [i, ci] of T0) {
           const ki = map[i]; if (ki < 0) continue;
-          bv[ki] += w * ci * e.val;
+          bv[ki] += w * ci * val;
           for (const [j, cj] of T0) { const kj = map[j]; if (kj >= 0) A[ki][kj] += w * ci * cj; else bv[ki] -= w * ci * cj * pos[j][ax]; }
         }
       });
@@ -561,6 +578,7 @@ function lsq(eqs, idx) {
       const r = Math.abs(terms[q].reduce((t, [i, c]) => t + c * pos[i][e.ax], 0) - e.val) / Math.sqrt(e.v), nh = r <= 2.5 ? 1 : 2.5 / r;
       if (Math.abs(nh - h[q]) > 1e-3) changed = true; h[q] = nh;
     });
+    if (hasDist) { const mv = Math.max(...pos.map((p, i) => Math.abs(p[0] - before[i][0]) + Math.abs(p[1] - before[i][1]))); if (mv > 1e-5) changed = true; }
     if (!changed) break;
   }
   return pos;
@@ -628,7 +646,7 @@ function solve() {
   let worst = null;
   for (const m of D.meas) {
     const A = P.get(m.a), B = P.get(m.b); if (!A || !B) continue;
-    const [c, s] = dirv(m.ang), kept = (B[0] - A[0]) * c + (B[1] - A[1]) * s;
+    const [c, s] = dirv(m.ang), kept = m.kind === "p2p" ? Math.hypot(B[0] - A[0], B[1] - A[1]) : (B[0] - A[0]) * c + (B[1] - A[1]) * s;
     if (!m.obs.length) { res.set(m.id, { kept, resid: [0], spread: 0, flag: false, score: 0, computed: true }); continue; }
     const med = m.obs.slice().sort((x, y) => x - y)[Math.floor(m.obs.length / 2)];
     const used = m.obs.length >= 3 ? m.obs.filter(L => Math.abs(L - med) <= 0.01) : m.obs;
@@ -956,6 +974,14 @@ function overlay(P, s) {
   const c = DARK, g = el("g", {}, svg), sol = solve(), r = curRoom(), st = ui.draft || ui.cote ? null : stationId();
   for (const p of D.pts) {
     const q = P(...sol.P.get(p.id)), own = r && p.room === r.id;
+    if (ui.p2p) {
+      const on = p.id === ui.p2p.a || p.id === ui.p2p.b;
+      if (p.id === ui.p2p.a) marker(g, q, c);
+      else el("circle", { cx: q[0], cy: q[1], r: on ? 7 : 5, fill: "#0f1315", stroke: on ? c.laser : c.ink, "stroke-width": 2, "pointer-events": "none" }, g);
+      txt(g, q[0] + 12, q[1] - 12, p.lab, { size: 12, fill: on ? c.laser : c.soft, font: "Archivo, sans-serif", weight: 700, pe: false });
+      el("circle", { cx: q[0], cy: q[1], r: 16, fill: "transparent", "data-pt": p.id }, g);
+      continue;
+    }
     if (!own) {
       // point d'une autre pièce : verrouillé
       el("circle", { cx: q[0], cy: q[1], r: 3, fill: c.dim, "pointer-events": "none" }, g);
@@ -971,6 +997,9 @@ function overlay(P, s) {
   if (ui.control) {
     const m = meas(ui.control), q = P(...sol.P.get(m.a));
     ray(gr, q, dirv(m.ang), Math.max(90, Math.min(4, sol.res.get(m.id).kept) * s), "Contrôle", "même départ, même direction");
+  } else if (ui.p2p && ui.p2p.a && ui.p2p.b) {
+    const a = P(...sol.P.get(ui.p2p.a)), b = P(...sol.P.get(ui.p2p.b));
+    el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: c.laser, "stroke-width": 2.5, "stroke-dasharray": "7 5" }, gr);
   } else if (ui.cote) {
     const S = coteStation(); if (S) { const q = P(...S); marker(gr, q, c); ray(gr, q, dirv(ui.cote.dir), Math.max(90, Math.min(5, ui.cote.len || 2) * s), "À travers", ui.cote.door ? "par " + ui.cote.door : ""); }
   } else if (r && !busy && pt(st)) {
@@ -1127,6 +1156,12 @@ svg.addEventListener("wheel", e => { e.preventDefault(); const rc = svg.getBound
 new ResizeObserver(() => render()).observe(svg);
 
 function handleTap(t) {
+  if (ui.p2p) {
+    if (!t.pt) return toast("Touche un point (un coin) sur le plan");
+    const q = ui.p2p;
+    if (!q.a || q.b) { q.a = t.pt; q.b = null; } else if (t.pt !== q.a) q.b = t.pt;
+    return refresh();
+  }
   if (sheetMin && (t.meas || t.op || t.room) && ui.view !== "maison") sheetMin = false;
   if (ui.view === "maison") { if (t.room) { ui.sel = { type: "room", id: t.room }; ui.armDel = null; refresh(); } return; }
   if (ui.pending) return toast("Réponds d'abord à la question du panneau");
@@ -1174,17 +1209,24 @@ function onMeasure(v) {
   if (ui.view !== "releve") return refuse("Bip ignoré : tu es sur la vue Maison. Reviens au relevé pour mesurer.");
   if (ui.pending) return refuse("Bip ignoré : réponds d'abord à la question du panneau");
   let msg;
+  const cnt = m => m.obs.length + (m.chk || []).length, before = new Map(D.meas.map(m => [m.id, cnt(m)])), hRoom = ui.height, dr = ui.draft;
   if (ui.control) {
     pushUndo(); const m = meas(ui.control), repl = ui.replace;
+    if (D.checkMode && !repl) { (m.chk = m.chk || []).push(v); ui.control = null; msg = chkMsg(m, v); }
+    else {
     if (repl) m.obs = [v]; else m.obs.push(v);
     m.ded = false; ui.control = null; ui.replace = false; SOL = null;
     const rs = solve().res.get(m.id);
     msg = repl ? `${mName(m)} remplacé : ${fmt(v)} m`
       : rs.spread > 0.01 ? `${mName(m)} : ${m.obs.map(x => fmt(x)).join(" / ")} ne concordent pas. Si l'une est une erreur, retire-la dans la fiche du mur.` : `${mName(m)} confirmé : ${fmt(v)} m`;
+    }
   } else if (ui.height) {
     pushUndo(); room(ui.height).height = v; ui.height = null; msg = `Hauteur sous plafond : ${fmt(v, 2)} m`;
   } else if (ui.cote) {
     pushUndo(); msg = coteBip(v);
+  } else if (ui.p2p) {
+    if (!ui.p2p.b) return refuse("Bip ignoré : touche d'abord les deux points sur le plan");
+    pushUndo(); msg = p2pBip(v);
   } else if (d) {
     const st = d.meas && curStep(d);
     if (!d.meas) return refuse("Bip ignoré : touche d'abord le mur sur le plan");
@@ -1200,6 +1242,7 @@ function onMeasure(v) {
     else if (r.status === "measure") { pushUndo(); msg = measureBip(v); if (msg == null) { undoStack.pop(); return refuse("Bip ignoré : aucun mur en cours"); } }
     else return refuse(`Bip ignoré : ${r.name} est fermée. Touche un mur pour une mesure de contrôle.`);
   }
+  logBip(v, before, cnt, hRoom, dr);
   lastBip = { v, msg }; ui.manual = false;
   if (navigator.vibrate) navigator.vibrate(30);
   refresh(); toast(msg); follow();
@@ -1576,7 +1619,7 @@ function deleteMeas(id) {
   for (const o of D.openings.filter(o => o.meas === id)) removeOpening(o);
   D.cons = D.cons.filter(c => c.w !== id && !(c.walls && c.walls.includes(id)));
   pruneOrphans(); ui.sel = null; ui.armDel = null; refresh();
-  toast(r ? `Mur supprimé · ${r.name} revient au croquis` : "Cote supprimée");
+  toast(r ? `Mur supprimé · ${r.name} revient au croquis` : "Mesure supprimée");
 }
 function deleteRoom(r) {
   // supprime ses points, ses murs et leurs ouvertures ; les portes qui y menaient restent, sans passage
@@ -1721,7 +1764,8 @@ function coteBip(v) {
   let tw = c.tw && meas(c.tw); if (tw && !nearWall(E, tw, 0.3)) tw = null; if (!tw) tw = wallUnder(E, [sw.id]);
   const pe = addPoint(E[0], E[1], r && r.id);
   if (tw) { const tg = wallGeom(tw); D.cons.push({ id: nid("c"), kind: "onwall", p: pe.id, w: tw.id, t: (E[0] - tg.A[0]) * tg.u[0] + (E[1] - tg.A[1]) * tg.u[1] }); }
-  const m = { id: nid("m"), a: ps.id, b: pe.id, ang: c.dir, obs: [v], kind: "cote" }; D.meas.push(m);
+  const m = { id: nid("m"), a: ps.id, b: pe.id, ang: c.dir, obs: D.checkMode ? [] : [v], kind: "cote" }; D.meas.push(m);
+  if (D.checkMode) { m.chk = [v]; m.sketch = v; ui.cote = null; return chkMsg(m, v); }
   const o = c.door && opening(c.door);
   if (o && o.pass && tw && tw.id === c.tw) o.pass.fixed = m.id;
   ui.cote = null; SOL = null;
@@ -1752,7 +1796,7 @@ function wallBad(m) {
   // écart restant de ce mur avec ses mesures dans une variante du plan (null si le mur redevient cohérent)
   const [c, s] = dirv(m.ang), med = m.obs.slice().sort((x, y) => x - y)[Math.floor(m.obs.length / 2)];
   const used = m.obs.length >= 3 ? m.obs.filter(L => Math.abs(L - med) <= 0.01) : m.obs;
-  return P => { const A = P.get(m.a), B = P.get(m.b); if (!A || !B) return null; const k = (B[0] - A[0]) * c + (B[1] - A[1]) * s, big = Math.max(...used.map(L => Math.abs(k - L))); return big <= FLAG ? big : null; };
+  return P => { const A = P.get(m.a), B = P.get(m.b); if (!A || !B) return null; const k = m.kind === "p2p" ? Math.hypot(B[0] - A[0], B[1] - A[1]) : (B[0] - A[0]) * c + (B[1] - A[1]) * s, big = Math.max(...used.map(L => Math.abs(k - L))); return big <= FLAG ? big : null; };
 }
 function pairBad(f) {
   return P => { const A = P.get(f.p.a), B = P.get(f.q.a); if (!A || !B) return null; const g = (B[f.p.ax] - A[f.p.ax]) * f.p.out; return g >= 0.05 ? Math.abs(g - D.thick) : null; };
@@ -1776,6 +1820,82 @@ function badPartitions(sol) {
   // cloisons écrasées (< 5 cm) ou pièces qui se chevauchent : une mesure ou une contrainte ne colle pas à la réalité
   const known = new Set(D.cons.filter(c => c.kind === "thick" && c.known && c.walls).map(c => c.walls.slice().sort().join("|")));
   return facingPairs(sol.P).filter(f => f.g < 0.05 && !known.has([f.p.m, f.q.m].sort().join("|")));
+}
+
+/* ---------- historique des mesures ---------- */
+function logBip(v, before, cnt, hRoom, dr) {
+  // chaque bip accepté est daté : à quoi il a servi (mur, cote, hauteur, ouverture)
+  const m = D.meas.find(x => !before.has(x.id) || cnt(x) !== before.get(x.id) || (x.obs.length === 1 && x.obs[0] === v && ui.replace));
+  const r = m && m.kind === "wall" ? roomOfWall(m) : null;
+  const what = m ? `${m.kind === "wall" ? "mur" : m.kind === "p2p" ? "point à point" : "à travers"} ${mName(m)}${r ? ` (${r.name})` : ""}${(m.chk || []).includes(v) && !m.obs.includes(v) ? " · contrôle en attente" : ""}`
+    : hRoom ? `hauteur (${roomName(hRoom)})` : dr ? `${dr.type === "window" ? "fenêtre" : "porte"} · ${mName(meas(dr.meas) || { a: "", b: "" })}` : "mesure";
+  (D.log = D.log || []).push({ t: Date.now(), v, m: m ? m.id : null, what });
+}
+const when = t => { try { return new Date(t).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; } };
+function obsTimes(m) {
+  // date de chaque mesure du mur, retrouvée dans le journal (même mur, même valeur)
+  const used = new Set();
+  return m.obs.map(v => { const i = (D.log || []).findIndex((e, k) => !used.has(k) && e.m === m.id && Math.abs(e.v - v) < 1e-9); if (i < 0) return null; used.add(i); return D.log[i].t; });
+}
+function histHTML() {
+  const L = (D.log || []).slice().reverse();
+  if (!L.length) return `<div class="sec"><span class="label">Historique des mesures</span><p class="small">Les mesures sont datées à partir de maintenant.</p></div>`;
+  const live = e => { const m = e.m && meas(e.m); return !e.m || (m && (m.obs.some(x => Math.abs(x - e.v) < 1e-9) || (m.chk || []).some(x => Math.abs(x - e.v) < 1e-9))); };
+  const shown = ui.hist ? L : L.slice(0, 5);
+  return `<div class="sec"><span class="label">Historique des mesures · ${L.length}</span>
+    ${shown.map(e => `<div class="hrow"><span class="t">${when(e.t)}</span><b>${fmt(e.v)}</b><span class="w">${esc(e.what)}${live(e) ? "" : ` · <i>retirée</i>`}</span></div>`).join("")}
+    ${L.length > 5 ? `<button class="linkbtn" data-act="hist">${ui.hist ? "Réduire" : `Tout voir (${L.length})`}</button>` : ""}</div>`;
+}
+
+/* ---------- point à point et mode contrôle ---------- */
+function chkMsg(m, v) {
+  SOL = null; const kept = solve().res.get(m.id).kept, d = v - kept;
+  return `${mName(m)} : ${fmt(v)} m, le plan dit ${fmt(kept)} m (${sgn(d)} cm) ${Math.abs(d) <= FLAG ? "✓" : "⚠"} · en attente dans la vue Maison`;
+}
+function p2pBip(v) {
+  const { a, b } = ui.p2p, A = Pof(a), B = Pof(b);
+  let m = D.meas.find(x => x.kind === "p2p" && ekey(x.a, x.b) === ekey(a, b));
+  if (!m) { m = { id: nid("m"), a, b, ang: angOf([B[0] - A[0], B[1] - A[1]]), obs: [], kind: "p2p" }; D.meas.push(m); }
+  ui.p2p = null; SOL = null;
+  if (D.checkMode) { (m.chk = m.chk || []).push(v); return chkMsg(m, v); }
+  m.obs.push(v); SOL = null;
+  const rs = solve().res.get(m.id);
+  return `${mName(m)} : ${fmt(v)} m${rs.flag ? ` · s'écarte de ${sgn(rs.kept - v)} cm du plan, à vérifier` : " ✓ ajouté au plan"}`;
+}
+function p2pHTML() {
+  const q = ui.p2p;
+  if (!q.b) return `<div class="cardtxt"><span class="label">Point à point</span><span class="big">${q.a ? `Départ ${lab(q.a)} · touche le point visé` : "Touche le point de départ"}</span></div>
+    <p class="hint">${q.a ? "Le point que vise le laser : un coin de la pièce (en diagonale aussi), ou d'une autre pièce si une porte ouverte laisse passer le laser." : "Le coin où tu cales le dos du M130. Tous les points du plan sont affichés."}</p>
+    <div class="bar"><button class="btn grow" data-act="p2p-cancel">Annuler</button></div>`;
+  const A = Pof(q.a), B = Pof(q.b), L = Math.hypot(B[0] - A[0], B[1] - A[1]), diag = Math.abs(B[0] - A[0]) > 0.05 && Math.abs(B[1] - A[1]) > 0.05;
+  const ex = D.meas.find(x => x.kind === "p2p" && ekey(x.a, x.b) === ekey(q.a, q.b));
+  return `<div class="card"><div class="cardtxt">${waitLine()}<span class="big">${lab(q.a)} → ${lab(q.b)} · ≈ ${fmt(L, 2)} m</span>
+    <span class="hint">Dos du M130 calé dans le coin ${lab(q.a)}, vise le coin ${lab(q.b)} (le point laser tout au fond du coin).${diag ? " En diagonale, le M130 ne rentre pas tout à fait dans le coin : l'app compte ± 1 cm." : ""}${ex && ex.obs.length ? ` Déjà mesuré : ${ex.obs.map(x => fmt(x)).join(" / ")} m.` : ""}${D.checkMode ? " <b>Mode contrôle</b> : la mesure sera comparée au plan, sans le modifier." : ""}</span></div></div>${manualRow()}
+    <div class="bar"><button class="btn grow" data-act="p2p-reset">Autres points</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
+}
+function pendingList() { const out = []; for (const m of D.meas) (m.chk || []).forEach((v, k) => out.push({ m, v, k })); return out; }
+function controlModeHTML() {
+  const pl = pendingList(), sol = solve();
+  return `<div class="sec"><span class="label">Mode contrôle${pl.length ? ` · ${pl.length} en attente` : ""}</span>
+    <div class="row nowrap"><span class="hint" style="flex:1">${D.checkMode ? "<b>Activé</b> : les nouvelles mesures (contrôle, à travers, point à point) sont comparées au plan sans le modifier." : "Pour le relevé fini : les nouvelles mesures sont comparées au plan sans le modifier ; tu choisis ensuite de les intégrer."}</span>
+    <button class="btn ${D.checkMode ? "primary" : ""}" data-act="checkmode">${D.checkMode ? "Désactiver" : "Activer"}</button></div>
+    ${pl.map(({ m, v, k }) => { const kept = sol.res.get(m.id).kept, d = v - kept, ok = Math.abs(d) <= FLAG;
+      return `<div class="chk ${ok ? "" : "warn"}"><span class="hint">${ok ? "✓" : "⚠"} <b>${mName(m)}</b>${m.kind === "p2p" ? " (point à point)" : m.kind === "cote" ? " (à travers)" : ""} : ${fmt(v)} m, le plan dit ${fmt(kept)} m (${sgn(d)} cm).</span>
+        <div class="row nowrap"><button class="btn grow" data-act="chk-ok:${m.id}:${k}">Intégrer au plan</button><button class="btn grow" data-act="chk-no:${m.id}:${k}">Ignorer</button></div></div>`; }).join("")}
+    <button class="btn" data-act="p2p">Mesure point à point…</button></div>`;
+}
+function chkResolve(m, k, keep) {
+  if (!m || !m.chk || m.chk[k] == null) return;
+  pushUndo();
+  const v = m.chk.splice(k, 1)[0];
+  if (keep) { m.obs.push(v); m.ded = false; }
+  if (!m.chk.length) delete m.chk;
+  if (m.kind !== "wall" && !m.obs.length && !(m.chk || []).length) {
+    D.meas = D.meas.filter(x => x !== m);
+    if (m.kind === "cote") D.cons = D.cons.filter(c => c.p !== m.a && c.p !== m.b);
+    pruneOrphans();
+  }
+  SOL = null; refresh(); toast(keep ? `${fmt(v)} m intégré au plan` : "Mesure ignorée");
 }
 
 /* ---------- G · vérifications ---------- */
@@ -1939,7 +2059,7 @@ function closedHTML(r) {
       <div class="bar"><button class="btn grow" data-act="add-cancel">Annuler</button></div>`;
   }
   return segHTML(r) + `<div class="cardtxt"><span class="big">${esc(r.name)}</span><span class="hint">${info}</span></div>
-    <div class="row nowrap"><button class="btn grow" data-act="add-pick:window">+ Fenêtre</button><button class="btn grow" data-act="add-pick:door">+ Porte</button><button class="btn grow" data-act="add-pick:through">À travers…</button></div>
+    <div class="grid2"><button class="btn" data-act="add-pick:window">+ Fenêtre</button><button class="btn" data-act="add-pick:door">+ Porte</button><button class="btn" data-act="add-pick:through">À travers…</button><button class="btn" data-act="p2p">Point à point…</button></div>
     <p class="small">Ou touche un mur du plan : porte, passage, fenêtre, mesure de contrôle, mesure à travers.</p>
     <div class="bar">${undoBtn()}<button class="btn primary" data-act="newRoom">Commencer une pièce</button></div>`;
 }
@@ -2069,8 +2189,8 @@ function wallFiche(m) {
   const eqm = !m.obs.length && sameAs(m);
   const state = m.obs.length ? `Mesuré ${m.obs.length > 1 ? m.obs.length + " fois : " : ""}${m.obs.map(x => fmt(x)).join(" / ")} m` : eqm ? `Même longueur que ${mName(eqm)} (mesuré)` : determined(m) ? "Connu sans mesure : les autres murs et contraintes le fixent" : m.ded ? "Déduit, sans mesure" : "Croquis, pas encore mesuré";
   const worst = rs ? rs.resid.reduce((a, b) => Math.abs(b) > Math.abs(a) ? b : a, 0) : 0;
-  let h = `<div class="fhead"><div class="cardtxt"><span class="label">${m.kind === "wall" ? "Mur" : "Cote à travers"}${r ? " · " + esc(r.name) : ""}</span>
-    <span class="big">${m.kind === "wall" ? "Mur" : "Cote"} ${mName(m)} · ${fmt(rs ? rs.kept : wallLen(m), 2)} m</span></div>${closeX}</div>
+  let h = `<div class="fhead"><div class="cardtxt"><span class="label">${m.kind === "wall" ? "Mur" : m.kind === "p2p" ? "Point à point" : "Cote à travers"}${r ? " · " + esc(r.name) : ""}</span>
+    <span class="big">${m.kind === "wall" ? "Mur" : m.kind === "p2p" ? "" : "Cote"} ${mName(m)} · ${fmt(rs ? rs.kept : wallLen(m), 2)} m</span></div>${closeX}</div>
     <span class="hint">${flag ? `<b style="color:var(--laser-t)">À vérifier</b> · ` : ""}${state}, ${dirName(m.ang)}.${m.obs.length && Math.abs(worst) > 0.0005 ? ` Écart avec l'ensemble : ${sgn(worst)} cm.` : ""}</span>`;
   if (m.kind === "wall") {
     h += `<div class="sec"><span class="label">Ajouter sur ce mur</span><div class="chips" style="flex-wrap:wrap">
@@ -2107,9 +2227,10 @@ function wallFiche(m) {
   if (m.kind === "wall" && !(norm(m.ang) % 90)) h += `<div class="sec"><span class="label">Mesure à travers</span>${ui.thru === m.id ? throughOptHTML(m)
     : `<button class="btn" data-act="thru:${m.id}">Viser depuis ce mur, à travers les portes…</button>`}</div>`;
   if (m.obs.length) {
-    h += `<div class="sec"><span class="label">Mesures de ce mur</span><div class="chips" style="flex-wrap:wrap">${m.obs.map((v, k) =>
-      `<button class="chip" data-act="obs-del:${m.id}:${k}" aria-label="Retirer la mesure ${fmt(v)}">${fmt(v)} m ×</button>`).join("")}</div>
-      <p class="small">Une mesure fausse ? Touche-la pour la retirer${m.obs.length > 1 ? " : l'app ne gardera que les autres" : ""}.</p></div>`;
+    const tms = obsTimes(m);
+    h += `<div class="sec"><span class="label">Mesures de ce ${m.kind === "wall" ? "mur" : "trait"}</span><div class="chips" style="flex-wrap:wrap">${m.obs.map((v, k) =>
+      `<button class="chip" data-act="obs-del:${m.id}:${k}" aria-label="Retirer la mesure ${fmt(v)}">${fmt(v)} m${tms[k] ? ` <span style="color:var(--muted)">· ${when(tms[k])}</span>` : ""} ×</button>`).join("")}</div>
+      <p class="small">Une mesure fausse ? Touche-la pour la retirer${m.obs.length > 1 ? " : l'app ne gardera que les autres" : ""}.</p>${(m.chk || []).length ? `<p class="small">En attente (mode contrôle) : ${m.chk.map(x => fmt(x)).join(" / ")} m. Décide dans la vue Maison.</p>` : ""}</div>`;
     if (flag) h += `<p class="small" style="color:var(--warn-t,#ffb27a)">${explainFlag(m)}</p>${suspectsHTML(structSuspects("c:" + m.id, wallBad(m)))}`;
   }
   h += `${m.obs.length ? `<button class="btn" data-act="replace:${m.id}">Remplacer la mesure</button>` : ""}
@@ -2158,7 +2279,7 @@ function heightHTML() {
 function controlHTML() {
   const m = meas(ui.control), rs = solve().res.get(m.id);
   return `<div class="card"><div class="pict">${pictAim(norm(m.ang), m.kind)}</div><div class="cardtxt">${waitLine()}<span class="big">${ui.replace ? "Nouvelle mesure" : "Contrôle"} ${mName(m)}</span>
-    <span class="hint">Même départ (point ${lab(m.a)}), même direction : ${dirName(m.ang)}. ${m.obs.length ? `Déjà mesuré : ${m.obs.map(x => fmt(x)).join(" / ")} m, l'` : "Pas encore mesuré, l'"}ajustement retient ${fmt(rs.kept)} m.</span></div></div>${manualRow()}
+    <span class="hint">${m.kind === "p2p" ? `Dos du M130 calé dans le coin ${lab(m.a)}, vise le coin ${lab(m.b)}.` : `Même départ (point ${lab(m.a)}), même direction : ${dirName(m.ang)}.`}${D.checkMode && !ui.replace ? " <b>Mode contrôle</b> : comparée au plan, sans le modifier." : ""} ${m.obs.length ? `Déjà mesuré : ${m.obs.map(x => fmt(x)).join(" / ")} m, l'` : "Pas encore mesuré, l'"}ajustement retient ${fmt(rs.kept)} m.</span></div></div>${manualRow()}
     <div class="bar"><button class="btn grow" data-act="control-later">Plus tard</button><button class="btn grow" data-act="manual">Saisir à la main</button></div>`;
 }
 function coteHTML() {
@@ -2232,7 +2353,7 @@ function maisonHTML() {
   // une pièce touchée : sa fiche prend la place du résumé, pour que ses boutons restent visibles
   let h = selR ? roomFiche(selR) : `<div style="display:flex;flex-direction:column;gap:4px"><b style="font-size:22px">Ma maison</b>
     <span class="hint">${D.rooms.length} pièce${D.rooms.length > 1 ? "s" : ""} · ${D.meas.filter(m => m.obs.length).length} mesures · ${D.openings.length} ouverture${D.openings.length > 1 ? "s" : ""} · <span style="font-family:var(--f-num)">${fmt(area, 1)} m²</span></span></div>`;
-  h += checksHTML();
+  h += checksHTML() + controlModeHTML() + histHTML();
   const stTxt = r => r.status === "closed" ? `<span class="st-ok">✓</span>` : r.status === "measure" ? `<span class="st-open">${wallOrder(r).filter(isDone).length}/${wallOrder(r).length}</span>` : `<span class="st-open">croquis</span>`;
   h += `<div class="sec"><span class="label">Pièces</span><div>${D.rooms.map(r => `<div class="rrow ${ui.sel && ui.sel.id === r.id ? "sel" : ""}"><button data-act="room:${r.id}">${esc(r.name)}${r.id === D.cur ? " ●" : ""}</button>
       <span class="g">${r.loop ? fmt(roomArea(r), 2) + " m²" : "—"}</span>${stTxt(r)}<span></span></div>`).join("") || `<p class="small">Aucune pièce pour l'instant.</p>`}</div>
@@ -2251,6 +2372,7 @@ function renderSheet() {
   else if (ui.control && meas(ui.control)) h = controlHTML();
   else if (ui.height && room(ui.height)) h = heightHTML();
   else if (ui.cote) h = coteHTML();
+  else if (ui.p2p) h = p2pHTML();
   else if (ui.draft) h = openingHTML();
   else if (ui.sel && ui.sel.type === "meas" && meas(ui.sel.id)) h = wallFiche(meas(ui.sel.id));
   else if (ui.sel && ui.sel.type === "op" && opening(ui.sel.id)) h = opFiche(opening(ui.sel.id));
@@ -2274,7 +2396,7 @@ function renderSheet() {
 let lastSheetKey = "", sheetMin = false;
 function sheetKey() {
   const r = curRoom();
-  return ui.view === "maison" ? "maison" + (ui.sel ? ui.sel.id : "") : ui.pending ? "pending" : ui.control ? "control" : ui.height ? "height" : ui.cote ? "cote"
+  return ui.view === "maison" ? "maison" + (ui.sel ? ui.sel.id : "") : ui.pending ? "pending" : ui.control ? "control" : ui.height ? "height" : ui.cote ? "cote" : ui.p2p ? "p2p" + !!ui.p2p.b
     : ui.draft ? "draft" : ui.sel ? ui.sel.type + ui.sel.id : r ? r.id + r.status + D.nav.trace : "welcome";
 }
 function renderHeader() {
@@ -2364,6 +2486,12 @@ function act(name, ...args) {
     case "details": ui.details = !ui.details; return refresh();
     case "swing": if (ui.draft) { ui.draft.swing = arg; if (arg2) ui.draft.hinge = arg2; } return refresh();
     case "thru": ui.thru = arg; return renderSheet();
+    case "p2p": ui.view = "releve"; resetUi(); ui.p2p = { a: null, b: null }; sheetMin = false; refresh(); fit(); return toast("Point à point : touche le point de départ");
+    case "p2p-reset": if (ui.p2p) { ui.p2p = { a: null, b: null }; ui.manual = false; } return refresh();
+    case "p2p-cancel": ui.p2p = null; return refresh();
+    case "checkmode": pushUndo(); D.checkMode = !D.checkMode; refresh(); return toast(D.checkMode ? "Mode contrôle activé : les nouvelles mesures ne modifient plus le plan" : "Mode contrôle désactivé");
+    case "chk-ok": return chkResolve(meas(arg), +arg2, true);
+    case "chk-no": return chkResolve(meas(arg), +arg2, false);
     case "jamb-piece": return jambPiece(meas(arg));
     case "thru-go": { const m = meas(arg), o = m && throughOptions(m)[+arg2]; if (!o) return toast("Visée introuvable"); const v = ui.view; resetUi(); ui.view = v; ui.cote = o; refresh(); return toast("Mesure à travers : suis la consigne du panneau"); }
     case "through-part": { const c = checkList().find(c => c.key === "g:" + arg); if (!c || !c.prop) return; ui.view = "releve"; resetUi(); ui.cote = c.prop; refresh(); fit(); return toast("Mesure à travers : suis la consigne du panneau"); }
@@ -2533,7 +2661,7 @@ function exportDxf() {
   const text = (p, hg, s, ly) => E.push("0", "TEXT", "8", ly, "10", f(p[0]), "20", f(-p[1]), "30", "0", "40", f(hg), "1", s);
   for (const m of D.meas) {
     const wg = wallGeom(m); if (!wg) continue;
-    if (m.kind === "cote") { line(wg.A, wg.B, "COTES"); continue; }
+    if (m.kind !== "wall") { line(wg.A, wg.B, "COTES"); continue; }
     for (const [a, b] of wallPieces(wg, false)) line(a, b, "MURS");
     for (const o of openingsOn(m.id, false)) {
       const og = openingGeom(o, wg);
