@@ -415,7 +415,8 @@ const r3 = v => Math.round(v * 1000) / 1000;
 const ekey = (a, b) => a < b ? a + "|" + b : b + "|" + a;
 function dirName(a) {
   a = norm(a);
-  return { 0: "vers la droite du plan", 90: "vers le bas du plan", 180: "vers la gauche du plan", 270: "vers le haut du plan" }[a] || `à ${String(a).replace(".", ",")}°`;
+  const v = dirv(a), h = v[0] > 0.2 ? "la droite" : v[0] < -0.2 ? "la gauche" : "", w = v[1] > 0.2 ? "le bas" : v[1] < -0.2 ? "le haut" : "";
+  return { 0: "vers la droite du plan", 90: "vers le bas du plan", 180: "vers la gauche du plan", 270: "vers le haut du plan" }[a] || `en biais, vers ${[w, h].filter(Boolean).join(" et ")} du plan (${Math.round(a)}°)`;
 }
 function addPoint(x, y, rid) { const p = { id: nid("p"), lab: letter(D.n.pt++), x, y, room: rid || null }; D.pts.push(p); SOL = null; return p; }
 function addWall(a, b, ang, L, extra) {
@@ -2321,7 +2322,10 @@ function ptFiche(p) {
     <span class="hint">${r && r.status === "sketch" && !D.nav.trace ? "Fais-le glisser sur le plan pour ajuster la forme. Posé sur un point voisin, il fusionne avec lui." : "Coin de la pièce."}</span>`;
   if (jamb) return h + `<p class="small">C'est un montant de porte : il part avec la porte (fiche de la porte, « Supprimer »).</p>`;
   if (r && r.loop && r.contour.length <= 3) return h + `<p class="small">Une pièce garde au moins 3 coins.</p>`;
+  const Q = both && Pof(prev), R = both && Pof(next), slant = both && Math.min(Math.abs(R[0] - Q[0]), Math.abs(R[1] - Q[1])) >= SNAP;
   h += `<p class="small">${both ? `Les murs ${lab(prev)} → ${p.lab} et ${p.lab} → ${lab(next)} deviennent un seul mur ${lab(prev)} → ${lab(next)}, à mesurer ; leurs mesures sont retirées.` : "Le mur qui finit à ce point part avec lui."}</p>
+    ${slant ? `<p class="small" style="color:var(--laser-t)">${lab(prev)} et ${lab(next)} ne sont pas alignés : le nouveau mur sera <b>en biais</b>. Pour enlever un petit mur parasite, fais plutôt glisser ${p.lab} sur son voisin.</p>` : ""}`;
+  h += `
     <div class="bar"><button class="btn danger grow" data-act="delpt:${p.id}">${ui.armDel === p.id ? (both ? `Confirmer : relier ${lab(prev)} à ${lab(next)}` : "Confirmer la suppression") : `Supprimer le point ${p.lab}`}</button></div>`;
   return h;
 }
@@ -2358,6 +2362,30 @@ function deletePoint(id) {
   if (r.status === "closed") r.status = "measure";
   pruneOrphans(); ui.sel = null; ui.armDel = null; SOL = null; refresh(); toast(msg);
 }
+function cornerFor(m) {
+  // mur en biais : le coin à angle droit qui le remplacerait (celui qui agrandit la pièce, jamais sur un point existant)
+  const r = roomOfWall(m); if (!r || !(norm(m.ang) % 90)) return null;
+  const A = Pof(m.a), B = Pof(m.b), poly = r.contour.map(Pof);
+  const cands = [[B[0], A[1]], [A[0], B[1]]].filter(C => !D.pts.some(p => { const q = Pof(p.id); return q && Math.hypot(q[0] - C[0], q[1] - C[1]) < 0.05; }));
+  if (!cands.length) return null;
+  const i = r.contour.indexOf(m.a), j = r.contour.indexOf(m.b), fwd = (i + 1) % r.contour.length === j;
+  const area = C => { const pl = poly.slice(); pl.splice(fwd ? i + 1 : j + 1, 0, C); return Math.abs(signedArea(pl)); };
+  return cands.sort((x, y) => area(y) - area(x))[0];
+}
+function restoreCorner(m) {
+  const C = cornerFor(m), r = roomOfWall(m); if (!C || !r) return toast("Pas de coin possible ici");
+  pushUndo();
+  const A = Pof(m.a), B = Pof(m.b), q = addPoint(C[0], C[1], r.id);
+  const w1 = addWall(m.a, q.id, axisDir(C[0] - A[0], C[1] - A[1]), Math.hypot(C[0] - A[0], C[1] - A[1]));
+  addWall(q.id, m.b, axisDir(B[0] - C[0], B[1] - C[1]), Math.hypot(B[0] - C[0], B[1] - C[1]));
+  for (const o of D.openings.filter(o => o.meas === m.id)) removeOpening(o);
+  D.cons = D.cons.filter(cn => cn.w !== m.id && !(cn.walls && cn.walls.includes(m.id)));
+  D.meas = D.meas.filter(x => x !== m);
+  const c = r.contour, i = c.indexOf(m.a), j = c.indexOf(m.b);
+  if ((i + 1) % c.length === j) c.splice(i + 1, 0, q.id); else c.splice(j + 1, 0, q.id);
+  if (r.status === "closed") r.status = "measure";
+  ui.sel = null; SOL = null; refresh(); toast(`Coin ${q.lab} ajouté : ${lab(m.a)} → ${q.lab} → ${lab(m.b)}, à angle droit`);
+}
 function delLabel(m) {
   const r = m.kind === "wall" ? roomOfWall(m) : null; if (!r) return "Confirmer la suppression";
   const es = roomEdges(r), i = es.findIndex(e => e.m === m);
@@ -2377,6 +2405,7 @@ function wallFiche(m) {
     h += `<div class="sec"><span class="label">Ajouter sur ce mur</span><div class="chips" style="flex-wrap:wrap">
       <button class="chip door" data-act="door">Porte</button><button class="chip door" data-act="passage">Passage</button><button class="chip win" data-act="window">Fenêtre</button>
       <button class="chip ${ui.notch ? "on" : ""}" data-act="notch">Décroché</button><button class="chip ${ui.angle ? "on" : ""}" data-act="angle">Angle non droit</button></div></div>`;
+    if (norm(m.ang) % 90 && cornerFor(m)) h += `<div class="warnbox" style="border-color:var(--line)"><span class="hint">Ce mur est en biais. S'il manque un coin à angle droit entre ${lab(m.a)} et ${lab(m.b)} :</span><button class="btn primary" data-act="corner:${m.id}">Remettre un coin à angle droit</button></div>`;
     if (!(norm(m.ang) % 90)) {
       // contrainte de structure posée à la main : ce mur est sur la même ligne qu'un autre (même façade, même hauteur…)
       const al = D.cons.filter(c => c.kind === "align" && c.walls && c.walls.includes(m.id)), eqc = D.cons.filter(c => c.kind === "equal" && c.walls.includes(m.id));
@@ -2691,6 +2720,7 @@ function act(name, ...args) {
     }
     case "plan-yes": { const p = ui.pending; if (!p || p.kind !== "plan") return; ui.pending = null; ui.wall = p.m; ui.planOk = true; onMeasure(p.v); ui.planOk = false; return; }
     case "plan-no": ui.pending = null; refresh(); return toast("Bip oublié");
+    case "corner": return restoreCorner(meas(arg));
     case "delpt": if (ui.armDel !== arg) { ui.armDel = arg; return renderSheet(); } return deletePoint(arg);
     case "op-measure": { const o = opening(arg); if (!o) return; startDraft(o.type, o.meas, o.swing === "none"); Object.assign(ui.draft, { editOf: o.id, ref: o.ref, swing: o.swing, hinge: o.hinge }); return refresh(); }
     case "menu": { const was = ui.menu; ui.menu = was ? null : "main"; ui.armDel = null; sheetMin = false; return refresh(); }
