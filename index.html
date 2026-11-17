@@ -315,7 +315,7 @@ header { display: flex; align-items: center; gap: 12px; flex: none; border-botto
 const $ = s => document.querySelector(s);
 const svg = $("#plan"), sheet = $("#sheet"), NS = "http://www.w3.org/2000/svg";
 const KEY = "releve-m130-v5", KEY4 = "releve-m130-v4";
-const APP_VERSION = "14/11 · 21:00";          // affichée dans le menu : pour savoir si le navigateur a bien pris la dernière version
+const APP_VERSION = "17/11 · 15:30";          // affichée dans le menu : pour savoir si le navigateur a bien pris la dernière version
 const DARK = { ink: "#eef2f1", room: "#6fd39a10", laser: "#ff5a47", door: "#f0b440", win: "#63c7e6", muted: "#9aa8ac", soft: "#c5cfd0", label: "#eef2f1", warn: "#ff9640", sketch: "#9aa8ac", dim: "#5b686d" };
 const LIGHT = { ink: "#1c272c", room: "#1c272c08", laser: "#d93a2b", door: "#b7791f", win: "#2b8db3", muted: "#5b6a70", soft: "#3d4a50", label: "#1c272c", warn: "#1c272c", sketch: "#5b6a70", dim: "#9aa8ac" };
 const STEPS = {
@@ -391,7 +391,7 @@ let D = blank(), SOL = null, CHK = null;
 const ui = { view: "releve" };
 function resetUi() {
   Object.assign(ui, { sel: null, wall: null, control: null, height: null, draft: null, pending: null, cote: null, manual: false, toWall: false,
-    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null, thru: null, p2p: null, menu: null, planOk: false, bpos: null });
+    notch: false, notchMode: "creux", notchRef: "a", angle: false, details: false, customDepth: false, armDel: null, hist: false, thickPick: null, pickWall: false, alignPick: null, equalPick: null, replace: false, allSugg: false, addPick: null, thru: null, p2p: null, menu: null, planOk: false, bpos: null, split: null });
 }
 resetUi();
 let view = { cx: 1.5, cy: 1, s: 60 }, undoStack = [], lastBip = null, conn = navigator.bluetooth ? "off" : "na", lastToast = "";
@@ -743,6 +743,20 @@ function centroid(poly) {
   if (Math.abs(a) < 1e-9) return [mean(poly.map(p => p[0])), mean(poly.map(p => p[1]))];
   return [cx / (3 * a), cy / (3 * a)];
 }
+function splitParts(r) {
+  // séparation d'une pièce entre deux de ses coins : deux parties, avec leur surface (moins la demi-épaisseur de la cloison chacune)
+  const sp = r.split; if (!sp || !r.loop) return null;
+  const c = r.contour, i = c.indexOf(sp.a), j = c.indexOf(sp.b); if (i < 0 || j < 0 || i === j) return null;
+  const [lo, hi] = i < j ? [i, j] : [j, i], A = c.slice(lo, hi + 1), B = c.slice(hi).concat(c.slice(0, lo + 1));
+  if (A.length < 3 || B.length < 3) return null;
+  const pa = Pof(sp.a), pb = Pof(sp.b); if (!pa || !pb) return null;
+  const L = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]), cut = (sp.thick || 0) * L / 2;
+  const part = ids => { const poly = ids.map(Pof); return { ids, poly, area: Math.max(0, Math.abs(signedArea(poly)) - cut) }; };
+  // la partie « nommée » est celle qui contient le premier coin choisi après a dans le sens du contour, mémorisée par sp.side
+  const p1 = part(A), p2 = part(B), named = sp.side && B.includes(sp.side) && !A.includes(sp.side) ? p2 : p1, rest = named === p1 ? p2 : p1;
+  named.name = sp.name || "Nouvelle pièce"; rest.name = sp.rest || r.name;
+  return { parts: [named, rest], L, pa, pb };
+}
 function roomArea(r) { return r.loop ? Math.abs(signedArea(roomPoly(r))) : 0; }
 function roomPerim(r) {
   const poly = roomPoly(r); let p = 0;
@@ -893,6 +907,19 @@ function drawHouse(g, P, o) {
     const poly = roomPoly(r); if (poly.length < 3) continue;
     const at = { points: poly.map(p => P(...p).join(",")).join(" "), fill: c.room }; if (o.screen) at["data-room"] = r.id;
     el("polygon", at, g);
+    const spl = splitParts(r);
+    if (spl) {
+      // pièce séparée : trait de la séparation (pointillé si fictive, mur si cloison) et une étiquette par partie
+      const a = P(...spl.pa), b = P(...spl.pb), th = r.split.thick || 0;
+      el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: th ? c.ink : c.soft, "stroke-width": th ? Math.max(2, th * o.scale) : 1.8, "stroke-dasharray": th ? "" : "7 5", "stroke-linecap": "round", "pointer-events": "none" }, g);
+      for (const pt of spl.parts) {
+        const [cx, cy] = P(...centroid(pt.poly)), fsN = o.fs * 1.1;
+        if (o.screen) el("rect", { x: cx - 50, y: cy - 22, width: 100, height: 44, fill: "transparent", "data-room": r.id }, g);
+        roomLabels.push({ r, name: pt.name, cx, cy, fsN, rot: 0, showArea: true, area: fmt(pt.area, 2) + " m²", showName: true });
+        fits(cx, cy, Math.max(pt.name.length * fsN * .6, 60), fsN * 2.6);
+      }
+      continue;
+    }
     const sp = poly.map(p => P(...p)), xs = sp.map(p => p[0]), ys = sp.map(p => p[1]);
     const bw = Math.max(...xs) - Math.min(...xs), bh = Math.max(...ys) - Math.min(...ys), [cx, cy] = P(...centroid(poly));
     const area = fmt(Math.abs(signedArea(poly)), 2) + " m²";
@@ -961,11 +988,11 @@ function drawHouse(g, P, o) {
       el("line", { x1: J[0] - wg.nin[0] * 9, y1: J[1] - wg.nin[1] * 9, x2: J[0] + wg.nin[0] * 9, y2: J[1] + wg.nin[1] * 9, stroke: d.type === "door" ? c.door : c.win, "stroke-width": 3 }, g);
     }
   }
-  for (const { r, cx, cy, fsN, rot, showArea, area, showName } of roomLabels) {
+  for (const { r, name, cx, cy, fsN, rot, showArea, area, showName } of roomLabels) {
     if (o.screen) el("rect", { x: cx - 50, y: cy - 22, width: 100, height: 44, fill: "transparent", "data-room": r.id }, g);
     const dn = showArea ? fsN * .55 : 0;                                                // décalage nom / surface
     const nx = rot ? cx - dn : cx, ny = rot ? cy : cy - dn, ax = rot ? cx + fsN * .75 : cx, ay = rot ? cy : cy + fsN * .75;
-    if (showName) txt(g, nx, ny, r.name, { size: fsN, fill: c.label, font: o.ui, weight: 700, rot, pe: false });
+    if (showName) txt(g, nx, ny, name || r.name, { size: fsN, fill: c.label, font: o.ui, weight: 700, rot, pe: false });
     if (showArea) txt(g, ax, ay, area, { size: o.fs, fill: c.soft, font: o.num, rot, pe: false });
   }
 }
@@ -1291,6 +1318,18 @@ new ResizeObserver(() => render()).observe(svg);
 
 function handleTap(t) {
   if (ui.menu) { ui.menu = null; return refresh(); }
+  if (ui.split) {
+    const r = room(ui.split.room); if (!r) { ui.split = null; return refresh(); }
+    if (!t.pt || !r.contour.includes(t.pt)) return toast(`Touche un coin de ${r.name}`);
+    const q = ui.split;
+    if (!q.a) { q.a = t.pt; return refresh(); }
+    if (t.pt === q.a) return toast("Choisis un autre coin");
+    const c = r.contour, i = c.indexOf(q.a), j = c.indexOf(t.pt), n = c.length;
+    if ((i + 1) % n === j || (j + 1) % n === i) return toast("Ces deux coins sont sur le même mur : choisis un coin plus loin");
+    pushUndo(); r.split = Object.assign({ name: "Nouvelle pièce", thick: 0 }, r.split || {}, { a: q.a, b: t.pt, side: c[(Math.min(i, j) + 1) % n] });
+    ui.split = null; ui.view = "maison"; ui.sel = { type: "room", id: r.id }; refresh();
+    const sp = splitParts(r); return toast(sp ? sp.parts.map(p => `${p.name} ${fmt(p.area, 2)} m²`).join(" · ") : "Séparation impossible ici");
+  }
   if (ui.p2p) {
     if (!t.pt) return toast("Touche un point (un coin) sur le plan");
     const q = ui.p2p;
@@ -2770,10 +2809,29 @@ function roomFiche(r) {
     <div class="stats"><div class="stat"><span>Surface</span><b>${r.loop ? fmt(roomArea(r), 2) + " m²" : "—"}</b></div><div class="stat"><span>Périmètre</span><b>${fmt(roomPerim(r), 2)} m</b></div>
       <div class="stat"><span>Hauteur</span><b>${r.height ? fmt(r.height, 2) + " m" : "—"}</b></div></div>
     ${roomConstraintsHTML(r)}
+    ${splitSectionHTML(r)}
     ${cur ? "" : `<button class="btn primary" data-act="resume:${r.id}">${r.status === "closed" ? "Aller dans cette pièce" : "Reprendre cette pièce"}</button>`}
     <button class="btn" data-act="height:${r.id}">Mesurer la hauteur sous plafond</button>
     <button class="btn danger" data-act="delroom">${ui.armDel === r.id ? "Confirmer la suppression" : "Supprimer la pièce"}</button>
     <p class="small">Supprime ses murs, ses portes et fenêtres.</p>`;
+}
+function splitSectionHTML(r) {
+  if (!r.loop) return "";
+  const sp = splitParts(r);
+  if (!sp) return `<div class="sec"><span class="label">Séparer la pièce</span><p class="small">Pour voir deux pièces possibles (une cloison à poser, par exemple) : choisis deux coins de la pièce, l'app trace la séparation et donne les deux surfaces. Les mesures ne changent pas.</p>
+    <button class="btn" data-act="split-start:${r.id}">Séparer la pièce…</button></div>`;
+  const th = r.split.thick || 0;
+  return `<div class="sec"><span class="label">Séparation ${lab(r.split.a)} – ${lab(r.split.b)} · ${fmt(sp.L, 2)} m</span>
+    ${sp.parts.map((p, k) => `<div class="row nowrap"><input class="field" id="spName${k}" value="${esc(p.name)}" style="flex:1;font-family:var(--f-ui)" aria-label="Nom de la partie ${k + 1}"><b style="font-family:var(--f-num);white-space:nowrap">${fmt(p.area, 2)} m²</b></div>`).join("")}
+    <div class="row nowrap"><button class="btn grow" data-act="split-names:${r.id}">Renommer</button></div>
+    <div class="row"><span class="small">Séparation :</span>${[[0, "fictive"], [0.07, "cloison 7 cm"], [0.1, "10 cm"]].map(([v, l]) => `<button class="mini ${Math.abs(th - v) < 1e-6 ? "on" : ""}" data-act="split-thick:${r.id}:${v}" style="font-family:var(--f-ui)">${l}</button>`).join("")}</div>
+    <div class="row nowrap"><button class="btn grow" data-act="split-start:${r.id}">Changer les coins</button><button class="btn danger grow" data-act="split-del:${r.id}">Retirer</button></div></div>`;
+}
+function splitPickHTML() {
+  const q = ui.split, r = room(q.room);
+  return `<div class="cardtxt"><span class="label">Séparer · ${esc(r.name)}</span><span class="big">${q.a ? `Coin ${lab(q.a)} · touche le second coin` : "Touche le premier coin"}</span></div>
+    <p class="hint">La séparation va d'un coin à un autre de la pièce, par exemple d'un pilier de l'arche à l'autre. Seuls les coins de ${esc(r.name)} sont proposés.</p>
+    <div class="bar"><button class="btn grow" data-act="split-cancel">Annuler</button></div>`;
 }
 function heightHTML() {
   const r = room(ui.height);
@@ -2880,6 +2938,7 @@ function renderSheet() {
   else if (ui.cote) h = coteHTML();
   else if (ui.p2p) h = p2pHTML();
   else if (ui.bpos && opening(ui.bpos.op)) h = bposHTML();
+  else if (ui.split && room(ui.split.room)) h = splitPickHTML();
   else if (ui.draft) h = openingHTML();
   else if (ui.sel && ui.sel.type === "meas" && meas(ui.sel.id)) h = wallFiche(meas(ui.sel.id));
   else if (ui.sel && ui.sel.type === "op" && opening(ui.sel.id)) h = opFiche(opening(ui.sel.id));
@@ -2905,7 +2964,7 @@ let lastSheetKey = "", sheetMin = false;
 function sheetKey() {
   const r = curRoom();
   if (ui.menu) return "menu" + ui.menu;
-  return ui.view === "maison" ? "maison" + (ui.sel ? ui.sel.id : "") : ui.pending ? "pending" : ui.control ? "control" : ui.height ? "height" : ui.cote ? "cote" : ui.p2p ? "p2p" + !!ui.p2p.b : ui.bpos ? "bpos"
+  return ui.view === "maison" ? "maison" + (ui.sel ? ui.sel.id : "") : ui.pending ? "pending" : ui.control ? "control" : ui.height ? "height" : ui.cote ? "cote" : ui.p2p ? "p2p" + !!ui.p2p.b : ui.bpos ? "bpos" : ui.split ? "split" + !!ui.split.a
     : ui.draft ? "draft" : ui.sel ? ui.sel.type + ui.sel.id : r ? r.id + r.status + D.nav.trace : "welcome";
 }
 function renderHeader() {
@@ -3014,6 +3073,14 @@ function act(name, ...args) {
     case "plan-yes": { const p = ui.pending; if (!p || p.kind !== "plan") return; ui.pending = null; ui.wall = p.m; ui.planOk = true; onMeasure(p.v); ui.planOk = false; return; }
     case "plan-no": ui.pending = null; refresh(); return toast("Bip oublié");
     case "corner": return restoreCorner(meas(arg));
+    case "split-start": { const r = room(arg); if (!r) return; ui.view = "releve"; resetUi(); D.cur = r.id; ui.split = { room: r.id, a: null }; sheetMin = false; refresh(); fitRoom(r); return toast("Touche le premier coin de la séparation"); }
+    case "split-cancel": ui.split = null; return refresh();
+    case "split-del": { const r = room(arg); if (!r) return; pushUndo(); delete r.split; refresh(); return toast("Séparation retirée"); }
+    case "split-thick": { const r = room(arg); if (!r || !r.split) return; pushUndo(); r.split.thick = +arg2; return refresh(); }
+    case "split-names": { const r = room(arg), sp = r && splitParts(r); if (!sp) return; pushUndo();
+      const n0 = (($("#spName0") || {}).value || "").trim(), n1 = (($("#spName1") || {}).value || "").trim();
+      if (n0) r.split.name = n0; if (n1) { if (sp.parts[1].name === r.name || !r.split.rest) r.split.rest = n1; else r.split.rest = n1; }
+      refresh(); return toast("Noms enregistrés"); }
     case "thick2": {
       const c = D.cons.find(x => x.kind === "thick" && x.op === arg && x.walls.length > 1); if (!c) return;
       let v = +arg2;
